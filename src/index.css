@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600;700&display=swap');
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-brand-black text-brand-white font-sans antialiased;
+  }
+
+  ::selection {
+    @apply bg-brand-pink text-brand-white;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-brand-blackSecondary;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gradient-rose rounded-full;
+  }
+}
+
+@layer components {
+  .container-page {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full font-semibold bg-gradient-rose text-brand-white shadow-rose hover:shadow-lg hover:scale-[1.02] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-brand-pink focus:ring-offset-2 focus:ring-offset-brand-black;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full font-semibold border-2 border-brand-pink text-brand-pink hover:bg-brand-pink hover:text-brand-black transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-brand-pink focus:ring-offset-2 focus:ring-offset-brand-black;
+  }
+
+  .btn-outline {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full font-semibold border-2 border-brand-white/20 text-brand-white hover:border-brand-pink hover:text-brand-pink transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-brand-pink focus:ring-offset-2 focus:ring-offset-brand-black;
+  }
+
+  .section-title {
+    @apply font-display text-3xl md:text-4xl lg:text-5xl font-semibold text-center;
+  }
+
+  .section-title-accent {
+    @apply bg-gradient-to-r from-brand-pink to-brand-roseGold bg-clip-text text-transparent;
+  }
+
+  .card {
+    @apply bg-brand-blackSecondary rounded-2xl border border-white/5 p-6 transition-all duration-300;
+  }
+
+  .card-hover {
+    @apply hover:border-brand-pink/30 hover:shadow-rose;
+  }
+
+  .divider {
+    @apply h-px bg-gradient-to-r from-transparent via-brand-roseGold/50 to-transparent;
+  }
+
+  .placeholder-image {
+    @apply relative overflow-hidden rounded-xl bg-brand-blackSecondary border border-white/5;
+  }
+
+  .placeholder-image-content {
+    @apply flex items-center justify-center w-full h-full text-brand-pink/60 bg-gradient-to-br from-brand-pink/5 via-transparent to-brand-roseGold/5;
+  }
+
+  .nav-link {
+    @apply relative text-brand-white/80 hover:text-brand-pink transition-colors duration-300 after:absolute after:bottom-0 after:left-0 after:w-0 after:h-0.5 after:bg-gradient-rose after:transition-all after:duration-300 hover:after:w-full;
+  }
+}
