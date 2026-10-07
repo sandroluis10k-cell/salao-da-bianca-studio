@@ -79,10 +79,15 @@ export const salonConfig = {
   aboutTitle: "Sobre a Bianca Alves",
   aboutText:
     "Na Bianca Alves Salão de Beleza, cada atendimento é pensado para valorizar a beleza e o estilo de cada cliente. Conheça nossos serviços, consulte os preços e fale conosco pelo WhatsApp para verificar os horários disponíveis.",
-  aboutImageUrl: "",
+  // Foto principal da Bianca / salão (arquivo encontrado em public/Imagens/)
+  aboutImageUrl: "/Imagens/bianca-principal.jpg.jpg",
 
-  instagramUsername: "",
-  instagramUrl: "",
+  // Foto de destaque do Hero (parallax) - mesma imagem, para não duplicar arquivo
+  heroImageUrl: "/Imagens/bianca-principal.jpg.jpg",
+
+  // Instagram oficial
+  instagramUsername: "studio_bianca_aaalves",
+  instagramUrl: "https://www.instagram.com/studio_bianca_aaalves",
 
   googleReviewUrl: "",
 
@@ -107,10 +112,9 @@ export const salonConfig = {
     { name: "Escova", price: 40 },
     { name: "Hidratação", price: 30 },
     {
-      name: "Colocação",
+      name: "Coloração",
       price: 30,
       description: "",
-      pendingConfirmation: true,
     },
     { name: "Hidratação e escova", price: 50 },
     { name: "Coloração e escova", price: 50 },
@@ -133,13 +137,16 @@ export const encodeAddressForMaps = (address: Address): string =>
 export const getGoogleMapsUrl = (address: Address): string =>
   `https://www.google.com/maps/search/?api=1&query=${encodeAddressForMaps(address)}`;
 
+const DEFAULT_WHATSAPP_MESSAGE =
+  "Olá, Bianca! Tudo bem? Vi o trabalho do salão e gostaria de saber mais sobre os serviços e horários disponíveis para agendar meu atendimento. 😊";
+
 export const getWhatsAppUrl = (
   number: string,
-  message: string = "Ol%C3%A1%21%20Encontrei%20a%20Bianca%20Alves%20Sal%C3%A3o%20de%20Beleza%20pelo%20site%20e%20gostaria%20de%20consultar%20os%20hor%C3%A1rios%20dispon%C3%ADveis"
+  message: string = encodeURIComponent(DEFAULT_WHATSAPP_MESSAGE)
 ): string => `https://wa.me/${number}?text=${message}`;
 
 export const getServiceBookingMessage = (service: Service): string => {
   const priceText = formatCurrency(service.price);
-  const message = `Olá! Encontrei a Bianca Alves Salão de Beleza pelo site e gostaria de agendar o serviço ${service.name}, no valor anunciado de ${priceText}. Quais horários estão disponíveis?`;
+  const message = `Olá, Bianca! Tudo bem? Vi o trabalho do salão pelo site e gostaria de agendar o serviço ${service.name}, no valor anunciado de ${priceText}. Pode me informar quais horários estão disponíveis? 😊`;
   return encodeURIComponent(message);
 };
