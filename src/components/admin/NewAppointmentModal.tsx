@@ -24,7 +24,8 @@ const nextHalfHour = () => {
 
 /** Lançar atendimento feito por fora do site (WhatsApp, balcão) */
 export const NewAppointmentModal = ({ day, onClose }: { day?: string; onClose: () => void }) => {
-  const { pin, services, reload, logout, go } = useAdmin();
+  const { pin, services: all, reload, logout, go } = useAdmin();
+  const services = all.filter((s) => s.active !== false);
   const toast = useToast();
   const [service, setService] = useState(services[0]?.name ?? OTHER);
   const [custom, setCustom] = useState('');
@@ -41,7 +42,7 @@ export const NewAppointmentModal = ({ day, onClose }: { day?: string; onClose: (
   useEffect(() => {
     if (service === OTHER && services.length && !custom && !price) pick(services[0].name);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [services]);
+  }, [all]);
 
   const pick = (v: string) => {
     setService(v);

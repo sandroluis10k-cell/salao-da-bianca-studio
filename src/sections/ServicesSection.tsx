@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Calendar, Clock, Info, Scissors, Check } from 'lucide-react';
 import { SectionWrapper } from '../components/SectionWrapper';
 import {
@@ -9,9 +9,35 @@ import {
   openBooking,
   Service,
 } from '../salonConfig';
+import { useServices } from '../useServices';
 
 export const ServicesSection = () => {
   const [hoveredService, setHoveredService] = useState<string | null>(null);
+  const rows = useServices();
+  const services: Service[] = rows.map((s) => ({ name: s.name, price: s.price, description: s.description || undefined }));
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  // Os cards trocam quando a lista do banco chega: aplica a mesma animação de entrada nos novos
+  useEffect(() => {
+    const cards = gridRef.current?.querySelectorAll<HTMLElement>('.reveal-block:not(.is-visible)');
+    if (!cards?.length) return;
+    if (!('IntersectionObserver' in window)) {
+      cards.forEach((c) => c.classList.add('is-visible'));
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) =>
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-visible');
+            io.unobserve(entry.target);
+          }
+        }),
+      { threshold: 0.12, rootMargin: '0px 0px -6% 0px' },
+    );
+    cards.forEach((c) => io.observe(c));
+    return () => io.disconnect();
+  }, [rows]);
 
   const getBookUrl = (service: Service) =>
     getWhatsAppUrl(salonConfig.whatsappNumber, getServiceBookingMessage(service));
@@ -35,8 +61,8 @@ export const ServicesSection = () => {
           <div className="section-divider" />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
-          {salonConfig.services.map((service, idx) => (
+        <div ref={gridRef} className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
+          {services.map((service, idx) => (
             <div
               key={service.name}
               className={`card card-hover relative overflow-hidden reveal-block ${

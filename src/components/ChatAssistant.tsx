@@ -6,8 +6,8 @@ import {
   formatAddress,
   getGoogleMapsUrl,
   getWhatsAppUrl,
-  type Service,
 } from '../salonConfig';
+import { useServices } from '../useServices';
 import {
   addDays,
   book,
@@ -18,7 +18,6 @@ import {
   friendlyError,
   getBusy,
   getHours,
-  getServices,
   todayKey,
   toDate,
   weekdayOf,
@@ -38,7 +37,7 @@ type Msg =
   | { id: number; from: 'link'; label: string; href: string; tone: 'whatsapp' };
 type NewMsg = Msg extends infer M ? (M extends Msg ? Omit<M, 'id'> : never) : never;
 
-type Booking = { service: Service; duration: number; day?: string; start?: Date; name?: string; phone?: string };
+type Booking = { service: ServiceRow; duration: number; day?: string; start?: Date; name?: string; phone?: string };
 type Expect = null | 'name' | 'phone';
 
 const DAYS_AHEAD = 14;
@@ -79,7 +78,8 @@ export const ChatAssistant = () => {
   const inputRef = useRef<HTMLInputElement>(null);
   const queue = useRef<Promise<void>>(Promise.resolve());
   const booking = useRef<Booking | null>(null);
-  const agenda = useRef<{ hours: HoursRow[]; services: ServiceRow[] } | null>(null);
+  const agenda = useRef<{ hours: HoursRow[] } | null>(null);
+  const services = useServices();
 
   useEffect(() => {
     const timer = window.setTimeout(() => setVisible(true), 1200);
@@ -90,7 +90,7 @@ export const ChatAssistant = () => {
   useEffect(() => {
     const handler = (e: Event) => {
       const name = (e as CustomEvent<{ service?: string }>).detail?.service;
-      openToBooking(salonConfig.services.find((s) => s.name === name));
+      openToBooking(services.find((s) => s.name === name));
     };
     window.addEventListener('abrir-agendamento', handler);
     return () => window.removeEventListener('abrir-agendamento', handler);
@@ -130,8 +130,7 @@ export const ChatAssistant = () => {
 
   const loadAgenda = async () => {
     if (agenda.current) return agenda.current;
-    const [hours, services] = await Promise.all([getHours(), getServices()]);
-    agenda.current = { hours, services };
+    agenda.current = { hours: await getHours() };
     return agenda.current;
   };
 
@@ -161,7 +160,7 @@ export const ChatAssistant = () => {
       <div>
         <p className="mb-2">Nossos serviços:</p>
         <ul className="space-y-1.5">
-          {salonConfig.services.map((s) => (
+          {services.map((s) => (
             <li key={s.name} className="flex justify-between gap-3 border-b border-dashed border-white/10 pb-1.5 last:border-0">
               <span>{s.name}</span>
               <span className="font-semibold text-brand-pinkLight whitespace-nowrap">{formatCurrency(s.price)}</span>
@@ -176,7 +175,7 @@ export const ChatAssistant = () => {
 
   const serviceButtons = () =>
     actions([
-      ...salonConfig.services.map((s) => ({ label: s.name, run: () => (user(s.name), startBooking(s)) })),
+      ...services.map((s) => ({ label: s.name, run: () => (user(s.name), startBooking(s)) })),
       backToMenu,
     ]);
 
@@ -186,11 +185,11 @@ export const ChatAssistant = () => {
   };
 
   /* ---------- AGENDAMENTO ---------- */
-  const startBooking = (s: Service) => {
+  const startBooking = (s: ServiceRow) => {
     after(async () => {
       try {
-        const ag = await loadAgenda();
-        const dur = ag.services.find((x) => x.name === s.name)?.duration_min ?? 60;
+        await loadAgenda();
+        const dur = s.duration_min || 60;
         booking.current = { service: s, duration: dur };
         bot(
           <div>
@@ -422,18 +421,27 @@ export const ChatAssistant = () => {
   /* ---------- texto livre ---------- */
   const answer = (raw: string) => {
     const t = normalize(raw);
-    const findService = (name: string) => salonConfig.services.find((s) => s.name === name);
+    const findService = (name: string) => services.find((s) => s.name === name);
 
-    if (/progressiva/.test(t) && !/(sem|com) formol/.test(t)) {
-      bot(`Temos dois tipos de progressiva, as duas por ${formatCurrency(100)}. Qual você prefere?`);
-      actions(
-        salonConfig.services
-          .filter((s) => /progressiva/i.test(s.name))
-          .map((s) => ({ label: s.name, run: () => (user(s.name), startBooking(s)) }))
-      );
+    // nome de qualquer serviço cadastrado (os mais longos primeiro, para "Hidratação e escova" vencer "Escova")
+    const byName = [...services]
+      .sort((a, b) => b.name.length - a.name.length)
+      .find((s) => normalize(s.name).trim().length > 2 && t.includes(normalize(s.name).trim()));
+    const progressivas = services.filter((s) => /progressiva/.test(normalize(s.name)));
+    if (byName && progressivas.includes(byName)) return startBooking(byName);
+    if (/progressiva/.test(t) && !/(sem|com) formol/.test(t) && progressivas.length) {
+      if (progressivas.length === 1) return startBooking(progressivas[0]);
+      const values = [...new Set(progressivas.map((s) => s.price))].sort((a, b) => a - b);
+      const priceText =
+        values.length === 1
+          ? `${progressivas.length === 2 ? 'as duas' : 'todas'} por ${formatCurrency(values[0])}`
+          : `a partir de ${formatCurrency(values[0])}`;
+      bot(`Temos ${progressivas.length} tipos de progressiva, ${priceText}. Qual você prefere?`);
+      actions(progressivas.map((s) => ({ label: `${s.name} · ${formatCurrency(s.price)}`, run: () => (user(s.name), startBooking(s)) })));
       return;
     }
-    const hit = SERVICE_KEYWORDS.find((k) => k.match.test(t));
+    if (byName) return startBooking(byName);
+    const hit = SERVICE_KEYWORDS.find((k) => k.match.test(t) && findService(k.name));
     const found = hit && findService(hit.name);
     if (found) return startBooking(found);
 
@@ -492,7 +500,7 @@ export const ChatAssistant = () => {
     window.setTimeout(() => inputRef.current?.focus(), 80);
   };
 
-  const openToBooking = (service?: Service) => {
+  const openToBooking = (service?: ServiceRow) => {
     setOpen(true);
     setUnread(false);
     setExpect(null);

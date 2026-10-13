@@ -9,6 +9,7 @@ import {
   MoreHorizontal,
   Plus,
   RefreshCw,
+  Scissors,
   Settings as SettingsIcon,
   Users,
   type LucideIcon,
@@ -25,6 +26,7 @@ import { Finance } from './admin/pages/Finance';
 import { Clients } from './admin/pages/Clients';
 import { Blocks } from './admin/pages/Blocks';
 import { Settings } from './admin/pages/Settings';
+import { Services } from './admin/pages/Services';
 import { addMonths, monthStart, priceOf, readPin, savePin } from './admin/utils';
 
 /** Página da Bianca: /agenda */
@@ -34,6 +36,7 @@ const PAGES: { id: Page; label: string; icon: LucideIcon; title: string; subtitl
   { id: 'agenda', label: 'Agenda', icon: CalendarDays, title: 'Agenda', subtitle: 'Seus atendimentos dia a dia' },
   { id: 'faturamento', label: 'Faturamento', icon: CircleDollarSign, title: 'Faturamento', subtitle: 'Quanto entrou e quanto está previsto' },
   { id: 'clientes', label: 'Clientes', icon: Users, title: 'Clientes', subtitle: 'Histórico de visitas e gastos' },
+  { id: 'servicos', label: 'Serviços', icon: Scissors, title: 'Serviços', subtitle: 'O que aparece no site e no agendamento' },
   { id: 'bloqueios', label: 'Bloqueios', icon: Ban, title: 'Bloqueios', subtitle: 'Folgas e horários fechados no site' },
   { id: 'config', label: 'Configurações', icon: SettingsIcon, title: 'Configurações', subtitle: 'Horários de atendimento e senha' },
 ];
@@ -101,13 +104,20 @@ const Dashboard = ({ pin, onLogout }: { pin: string; onLogout: () => void }) => 
   const [moreOpen, setMoreOpen] = useState(false);
   const loadingRef = useRef(false);
 
+  const reloadServices = useCallback(async () => {
+    try {
+      setServices(await admin.listServices(pin));
+    } catch {
+      // sem a lista completa, usa a pública (só ativos); o modal ainda deixa digitar o serviço
+      await getServices()
+        .then(setServices)
+        .catch(() => undefined);
+    }
+  }, [pin]);
+
   useEffect(() => {
-    getServices()
-      .then(setServices)
-      .catch(() => {
-        /* o modal deixa digitar o serviço */
-      });
-  }, []);
+    reloadServices();
+  }, [reloadServices]);
 
   const load = useCallback(async () => {
     if (loadingRef.current) return;
@@ -161,6 +171,7 @@ const Dashboard = ({ pin, onLogout }: { pin: string; onLogout: () => void }) => 
       appts,
       blocks,
       services,
+      reloadServices,
       loading,
       lastUpdate,
       reload: load,
@@ -169,7 +180,7 @@ const Dashboard = ({ pin, onLogout }: { pin: string; onLogout: () => void }) => 
       price,
       logout: onLogout,
     }),
-    [pin, appts, blocks, services, loading, lastUpdate, load, go, price, onLogout]
+    [pin, appts, blocks, services, reloadServices, loading, lastUpdate, load, go, price, onLogout]
   );
 
   const meta = PAGES.find((p) => p.id === page)!;
@@ -242,6 +253,7 @@ const Dashboard = ({ pin, onLogout }: { pin: string; onLogout: () => void }) => 
             {page === 'agenda' && <Agenda day={agendaDay} setDay={setAgendaDay} />}
             {page === 'faturamento' && <Finance />}
             {page === 'clientes' && <Clients />}
+            {page === 'servicos' && <Services />}
             {page === 'bloqueios' && <Blocks />}
             {page === 'config' && <Settings />}
           </main>
@@ -254,7 +266,7 @@ const Dashboard = ({ pin, onLogout }: { pin: string; onLogout: () => void }) => 
               const p = PAGES.find((x) => x.id === id)!;
               return <TabButton key={id} icon={p.icon} label={p.label} active={page === id} onClick={() => go(id)} />;
             })}
-            <TabButton icon={MoreHorizontal} label="Mais" active={page === 'bloqueios' || page === 'config' || moreOpen} onClick={() => setMoreOpen(true)} />
+            <TabButton icon={MoreHorizontal} label="Mais" active={!MOBILE_MAIN.includes(page) || moreOpen} onClick={() => setMoreOpen(true)} />
           </div>
         </nav>
 

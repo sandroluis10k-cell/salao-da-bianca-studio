@@ -32,7 +32,14 @@ async function call<T>(path: string, body?: unknown, method = 'POST'): Promise<T
 const rpc = <T,>(fn: string, args: Record<string, unknown> = {}) => call<T>(`rpc/${fn}`, args);
 
 /* ---------- tipos ---------- */
-export interface ServiceRow { name: string; duration_min: number; price: number }
+export interface ServiceRow {
+  name: string;
+  duration_min: number;
+  price: number;
+  active: boolean;
+  sort: number;
+  description: string;
+}
 export interface HoursRow { weekday: number; open_time: string; close_time: string; active: boolean }
 export interface Busy { start_at: string; end_at: string }
 export interface Appointment {
@@ -83,7 +90,7 @@ export const dayKeyOf = (d: Date | string) =>
 
 /* ---------- público ---------- */
 export const getServices = () =>
-  call<ServiceRow[]>('services?select=name,duration_min,price&order=sort', undefined, 'GET');
+  call<ServiceRow[]>('services?select=name,duration_min,price,active,sort,description&order=sort', undefined, 'GET');
 export const getHours = () =>
   call<HoursRow[]>('opening_hours?select=*&order=weekday', undefined, 'GET');
 export const getBusy = (from: Date, to: Date) =>
@@ -168,5 +175,25 @@ export const admin = {
       p_phone: a.phone,
       p_price: a.price,
     }),
+  /** Todos os serviços (inclusive os ocultos), já ordenados */
+  listServices: (pin: string) => rpc<ServiceRow[]>('admin_list_services', { p_pin: pin }),
+  /** Cria (oldName = null) ou edita/renomeia (oldName = nome atual) um serviço */
+  saveService: (
+    pin: string,
+    s: { oldName: string | null; name: string; durationMin: number; price: number; active: boolean; description: string }
+  ) =>
+    rpc<'ok' | 'senha_incorreta' | 'nome_invalido' | 'duracao_invalida' | 'preco_invalido' | 'ja_existe' | 'nao_encontrado'>(
+      'admin_save_service',
+      {
+        p_pin: pin,
+        p_old_name: s.oldName,
+        p_name: s.name,
+        p_duration_min: s.durationMin,
+        p_price: s.price,
+        p_active: s.active,
+        p_description: s.description,
+      }
+    ),
+  reorderServices: (pin: string, names: string[]) => rpc<boolean>('admin_reorder_services', { p_pin: pin, p_names: names }),
   setPrice: (pin: string, id: string, price: number) => rpc<boolean>('admin_set_price', { p_pin: pin, p_id: id, p_price: price }),
 };
