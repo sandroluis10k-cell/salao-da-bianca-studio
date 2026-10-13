@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Clock, KeyRound } from 'lucide-react';
 import { admin, getHours, type HoursRow } from '../../../agendaApi';
 import { useAdmin } from '../context';
@@ -6,7 +6,7 @@ import { Button, Card, Field, Input, Skeleton, Toggle, useToast } from '../ui';
 import { DAY_NAMES, savePin } from '../utils';
 
 export const Settings = () => {
-  const { pin, refreshKey } = useAdmin();
+  const { pin, registerPage } = useAdmin();
   const toast = useToast();
   const [rows, setRows] = useState<HoursRow[] | null>(null);
   const [saving, setSaving] = useState(false);
@@ -14,34 +14,68 @@ export const Settings = () => {
   const [newPin2, setNewPin2] = useState('');
   const [changing, setChanging] = useState(false);
 
+  // último estado salvo/carregado: serve para saber se há alterações pendentes
+  const [saved, setSaved] = useState<HoursRow[] | null>(null);
+  const norm = (l: HoursRow[] | null) =>
+    JSON.stringify((l ?? []).map((r) => [r.weekday, r.open_time.slice(0, 5), r.close_time.slice(0, 5), r.active]));
+  const dirty = rows !== null && saved !== null && norm(rows) !== norm(saved);
+
+  const applyLoaded = (l: HoursRow[]) => {
+    setRows(l);
+    setSaved(l);
+  };
+
   useEffect(() => {
     getHours()
-      .then(setRows)
+      .then(applyLoaded)
       .catch(() => {
         toast.error('Não consegui carregar os horários.');
         setRows([]);
+        setSaved([]);
       });
-  }, [toast, refreshKey]);
+  }, [toast]);
 
   const update = (i: number, patch: Partial<HoursRow>) => setRows((r) => r && r.map((x, j) => (j === i ? { ...x, ...patch } : x)));
 
-  const save = async () => {
-    if (!rows) return;
+  const save = async (): Promise<boolean> => {
+    if (!rows) return false;
     for (const r of rows) {
       if (r.active && r.close_time.slice(0, 5) <= r.open_time.slice(0, 5)) {
-        return toast.error(`${DAY_NAMES[r.weekday]}: o fechamento precisa ser depois da abertura.`);
+        toast.error(`${DAY_NAMES[r.weekday]}: o fechamento precisa ser depois da abertura.`);
+        return false;
       }
     }
     setSaving(true);
     try {
       await Promise.all(rows.map((r) => admin.setHours(pin, r.weekday, r.open_time.slice(0, 5), r.close_time.slice(0, 5), r.active)));
+      setSaved(rows);
       toast.success('Horários salvos! O site já mostra os novos horários.');
+      return true;
     } catch {
       toast.error('Não consegui salvar os horários. Tente de novo.');
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  // informa o painel: atualizar sem apagar o que foi digitado e perguntar antes de sair
+  const live = useRef({ dirty, save });
+  live.current = { dirty, save };
+  useEffect(() => {
+    registerPage({
+      isDirty: () => live.current.dirty,
+      save: () => live.current.save(),
+      refresh: async () => {
+        if (live.current.dirty) return 'dirty';
+        const fresh = await getHours();
+        if (live.current.dirty) return 'dirty'; // começou a editar enquanto carregava
+        applyLoaded(fresh);
+        return 'ok';
+      },
+    });
+    return () => registerPage(null);
+  }, [registerPage]);
 
   const changePin = async (e: FormEvent) => {
     e.preventDefault();
@@ -102,9 +136,12 @@ export const Settings = () => {
               ))}
         </div>
         <div className="border-t border-white/[0.06] p-5 sm:px-6">
-          <Button variant="primary" onClick={save} loading={saving} disabled={!rows} className="w-full sm:w-auto">
-            Salvar horários
-          </Button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <Button variant="primary" onClick={save} loading={saving} disabled={!rows} className="w-full sm:w-auto">
+              Salvar horários
+            </Button>
+            {dirty && <span className="text-center text-sm text-amber-200/80 sm:text-left">Alterações não salvas</span>}
+          </div>
         </div>
       </Card>
 

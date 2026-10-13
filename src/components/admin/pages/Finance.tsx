@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Ban, CalendarCheck2, CircleDollarSign, Hourglass, Receipt } from 'lucide-react';
 import { formatCurrency } from '../../../salonConfig';
 import { addDays, admin, dayKeyOf, toDate, todayKey, type Appointment } from '../../../agendaApi';
@@ -33,7 +33,7 @@ const rangeOf = (p: Period): [string, string] => {
 };
 
 export const Finance = () => {
-  const { pin, price, lastUpdate, refreshKey } = useAdmin();
+  const { pin, price, autoTick, registerPage } = useAdmin();
   const toast = useToast();
   const [period, setPeriod] = useState<Period>('mes');
   const [data, setData] = useState<Appointment[] | null>(null);
@@ -42,7 +42,22 @@ export const Finance = () => {
   useEffect(() => {
     setData(null);
   }, [period]);
-  // busca o período escolhido e recarrega junto com a atualização geral do painel
+  // botão de atualizar do painel: busca o período atual e informa se falhou
+  const rangeRef = useRef<[string, string]>([from, to]);
+  rangeRef.current = [from, to];
+  useEffect(() => {
+    registerPage({
+      refresh: async () => {
+        const [f, t] = rangeRef.current;
+        const d = await admin.list(pin, toDate(f, '00:00'), toDate(t, '00:00'));
+        if (rangeRef.current[0] === f && rangeRef.current[1] === t) setData(d);
+        return 'ok';
+      },
+    });
+    return () => registerPage(null);
+  }, [pin, registerPage]);
+
+  // busca o período escolhido e recarrega junto com a atualização automática do painel
   useEffect(() => {
     let alive = true;
     admin
@@ -56,7 +71,7 @@ export const Finance = () => {
     return () => {
       alive = false;
     };
-  }, [pin, from, to, lastUpdate, refreshKey, toast]);
+  }, [pin, from, to, autoTick, toast]);
 
   const s = useMemo(() => {
     if (!data) return null;

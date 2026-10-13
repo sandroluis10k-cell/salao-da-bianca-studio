@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { salonConfig } from '../salonConfig';
 import { admin, addDays, fmtTime, getServices, todayKey, toDate, type Appointment, type Block, type ServiceRow } from '../agendaApi';
-import { AdminCtx, type AdminData, type Page } from './admin/context';
+import { AdminCtx, type AdminData, type Page, type PageHooks } from './admin/context';
 import { AdminProviders, Button, Modal, useToast } from './admin/ui';
 import { Login } from './admin/Login';
 import { NewAppointmentModal } from './admin/NewAppointmentModal';
@@ -105,7 +105,10 @@ const Dashboard = ({ pin, onLogout }: { pin: string; onLogout: () => void }) => 
   const loadingRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [autoTick, setAutoTick] = useState(0);
+  const pageHooks = useRef<PageHooks>({});
+  const [leaving, setLeaving] = useState<{ to: Page; day?: string } | null>(null);
+  const [savingLeave, setSavingLeave] = useState(false);
   const toast = useToast();
 
   const reloadServices = useCallback(async () => {
@@ -146,7 +149,7 @@ const Dashboard = ({ pin, onLogout }: { pin: string; onLogout: () => void }) => 
     loadingRef.current = true;
     setLoading(true);
     try {
-      await fetchAll();
+      if ((await fetchAll()) === 'ok') setAutoTick((n) => n + 1);
     } catch {
       /* mantém a última lista */
       setAppts((x) => x ?? []);
@@ -163,14 +166,23 @@ const Dashboard = ({ pin, onLogout }: { pin: string; onLogout: () => void }) => 
     refreshingRef.current = true;
     setRefreshing(true);
     const minSpin = new Promise((r) => window.setTimeout(r, 700));
+    const pageRefresh = pageHooks.current.refresh;
+    // allSettled: cada parte atualiza o que conseguir; o aviso verde só sai se tudo der certo
+    const [main, svc, pg] = await Promise.allSettled([
+      fetchAll(),
+      admin.listServices(pin).then(setServices),
+      pageRefresh ? pageRefresh() : Promise.resolve('ok' as const),
+      minSpin,
+    ]);
     try {
-      const [r] = await Promise.all([fetchAll(), admin.listServices(pin).then(setServices), minSpin]);
-      if (r === 'logout') return;
-      setRefreshKey((k) => k + 1);
-      toast.success(`Agenda atualizada às ${fmtTime(new Date())}`);
-    } catch {
-      await minSpin;
-      toast.error('Não foi possível atualizar. Verifique a internet.');
+      if (main.status === 'fulfilled' && main.value === 'logout') return;
+      if (main.status === 'rejected' || svc.status === 'rejected' || pg.status === 'rejected') {
+        toast.error('Não foi possível atualizar tudo. Verifique a internet.');
+      } else if (pg.value === 'dirty') {
+        toast.warning('Você tem alterações não salvas nos horários');
+      } else {
+        toast.success(`Agenda atualizada às ${fmtTime(new Date())}`);
+      }
     } finally {
       refreshingRef.current = false;
       setRefreshing(false);
@@ -183,19 +195,73 @@ const Dashboard = ({ pin, onLogout }: { pin: string; onLogout: () => void }) => 
     return () => window.clearInterval(t);
   }, [load]);
 
-  useEffect(() => {
-    const onHash = () => setPage(pageFromHash());
-    window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
+  const registerPage = useCallback((hooks: PageHooks | null) => {
+    pageHooks.current = hooks ?? {};
   }, []);
 
-  const go = useCallback((p: Page, day?: string) => {
+  /** troca de página sem perguntar */
+  const navigate = useCallback((p: Page, day?: string) => {
     if (day) setAgendaDay(day);
     setPage(p);
     setMoreOpen(false);
     if (window.location.hash !== `#${p}`) window.history.replaceState(null, '', `#${p}`);
     window.scrollTo({ top: 0 });
   }, []);
+
+  /** troca de página, perguntando antes se houver alterações não salvas */
+  const go = useCallback(
+    (p: Page, day?: string) => {
+      if (p !== page && pageHooks.current.isDirty?.()) {
+        setMoreOpen(false);
+        setLeaving({ to: p, day });
+        return;
+      }
+      navigate(p, day);
+    },
+    [page, navigate]
+  );
+
+  useEffect(() => {
+    const onHash = () => {
+      const next = pageFromHash();
+      if (next === page) return;
+      if (pageHooks.current.isDirty?.()) {
+        window.history.replaceState(null, '', `#${page}`); // fica na página até ela decidir
+        setLeaving({ to: next });
+      } else setPage(next);
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, [page]);
+
+  // fechar ou recarregar a aba com alterações pendentes: aviso padrão do navegador
+  useEffect(() => {
+    const onUnload = (e: BeforeUnloadEvent) => {
+      if (!pageHooks.current.isDirty?.()) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onUnload);
+    return () => window.removeEventListener('beforeunload', onUnload);
+  }, []);
+
+  const leaveSave = async () => {
+    if (!leaving) return;
+    setSavingLeave(true);
+    const ok = (await pageHooks.current.save?.()) ?? true;
+    setSavingLeave(false);
+    if (!ok) return; // a página já mostrou o erro; continua aqui
+    const target = leaving;
+    setLeaving(null);
+    navigate(target.to, target.day);
+  };
+  const leaveDiscard = () => {
+    if (!leaving) return;
+    const target = leaving;
+    pageHooks.current = {};
+    setLeaving(null);
+    navigate(target.to, target.day);
+  };
 
   const price = useCallback((a: Appointment) => priceOf(a, services), [services]);
 
@@ -209,13 +275,14 @@ const Dashboard = ({ pin, onLogout }: { pin: string; onLogout: () => void }) => 
       loading,
       lastUpdate,
       reload: load,
-      refreshKey,
+      autoTick,
+      registerPage,
       openNew: (day?: string) => setNewOpen({ day }),
       go,
       price,
       logout: onLogout,
     }),
-    [pin, appts, blocks, services, reloadServices, loading, lastUpdate, load, refreshKey, go, price, onLogout]
+    [pin, appts, blocks, services, reloadServices, loading, lastUpdate, load, autoTick, registerPage, go, price, onLogout]
   );
 
   const meta = PAGES.find((p) => p.id === page)!;
@@ -342,6 +409,29 @@ const Dashboard = ({ pin, onLogout }: { pin: string; onLogout: () => void }) => 
               Sair
             </button>
           </div>
+        </Modal>
+
+        <Modal
+          open={!!leaving}
+          onClose={() => !savingLeave && setLeaving(null)}
+          title="Sair sem salvar?"
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setLeaving(null)} disabled={savingLeave}>
+                Cancelar
+              </Button>
+              <Button variant="danger" onClick={leaveDiscard} disabled={savingLeave}>
+                Descartar
+              </Button>
+              <Button variant="primary" onClick={leaveSave} loading={savingLeave}>
+                Salvar
+              </Button>
+            </>
+          }
+        >
+          <p className="text-[15px] leading-relaxed text-white/70">
+            Você alterou os horários de atendimento e ainda não salvou. Quer salvar antes de sair desta página?
+          </p>
         </Modal>
 
         {newOpen && <NewAppointmentModal day={newOpen.day} onClose={() => setNewOpen(null)} />}

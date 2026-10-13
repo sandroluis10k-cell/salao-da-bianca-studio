@@ -312,8 +312,12 @@ const ConfirmCtx = createContext<(o: ConfirmOpts) => Promise<boolean>>(async () 
 export const useConfirm = () => useContext(ConfirmCtx);
 
 /* ---------- toasts ---------- */
-type Toast = { id: number; kind: 'success' | 'error'; text: string };
-const ToastCtx = createContext<{ success: (t: string) => void; error: (t: string) => void }>({ success: () => {}, error: () => {} });
+type Toast = { id: number; kind: 'success' | 'error' | 'warning'; text: string };
+const ToastCtx = createContext<{ success: (t: string) => void; error: (t: string) => void; warning: (t: string) => void }>({
+  success: () => {},
+  error: () => {},
+  warning: () => {},
+});
 export const useToast = () => useContext(ToastCtx);
 
 export const AdminProviders = ({ children }: { children: ReactNode }) => {
@@ -324,7 +328,11 @@ export const AdminProviders = ({ children }: { children: ReactNode }) => {
     setToasts((t) => [...t.slice(-2), { id, kind, text }]);
     window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000);
   }, []);
-  const [toastApi] = useState(() => ({ success: (t: string) => push('success', t), error: (t: string) => push('error', t) }));
+  const [toastApi] = useState(() => ({
+    success: (t: string) => push('success', t),
+    error: (t: string) => push('error', t),
+    warning: (t: string) => push('warning', t),
+  }));
 
   const [confirm, setConfirm] = useState<(ConfirmOpts & { resolve: (v: boolean) => void }) | null>(null);
   const ask = useCallback((o: ConfirmOpts) => new Promise<boolean>((resolve) => setConfirm({ ...o, resolve })), []);
@@ -367,13 +375,17 @@ export const AdminProviders = ({ children }: { children: ReactNode }) => {
               key={t.id}
               role="status"
               className={`pointer-events-auto flex w-full max-w-sm items-start gap-2.5 rounded-2xl border px-4 py-3 text-sm shadow-2xl backdrop-blur-md animate-[admDown_.25s_ease-out] ${
-                t.kind === 'success' ? 'border-emerald-400/20 bg-[#0f1a14]/95 text-emerald-100' : 'border-red-400/25 bg-[#1c1012]/95 text-red-100'
+                t.kind === 'success'
+                  ? 'border-emerald-400/20 bg-[#0f1a14]/95 text-emerald-100'
+                  : t.kind === 'warning'
+                    ? 'border-amber-400/25 bg-[#1c170d]/95 text-amber-100'
+                    : 'border-red-400/25 bg-[#1c1012]/95 text-red-100'
               }`}
             >
               {t.kind === 'success' ? (
                 <CheckCircle2 className="mt-px h-4 w-4 shrink-0 text-emerald-300" />
               ) : (
-                <AlertTriangle className="mt-px h-4 w-4 shrink-0 text-red-300" />
+                <AlertTriangle className={`mt-px h-4 w-4 shrink-0 ${t.kind === 'warning' ? 'text-amber-300' : 'text-red-300'}`} />
               )}
               <span className="min-w-0 flex-1">{t.text}</span>
             </div>
