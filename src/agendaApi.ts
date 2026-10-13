@@ -45,6 +45,10 @@ export interface Appointment {
   client_phone: string;
   status: 'confirmado' | 'cancelado' | 'concluido';
   created_at: string;
+  /** valor cobrado pelo atendimento */
+  price: number | null;
+  /** 'site' = agendado pelo site; 'manual' = lançado pela Bianca */
+  source: 'site' | 'manual';
 }
 export interface Block { id: string; start_at: string; end_at: string; reason: string | null }
 
@@ -150,4 +154,19 @@ export const admin = {
   removeBlock: (pin: string, id: string) => rpc<boolean>('admin_remove_block', { p_pin: pin, p_id: id }),
   setHours: (pin: string, weekday: number, open: string, close: string, active: boolean) =>
     rpc<boolean>('admin_set_hours', { p_pin: pin, p_weekday: weekday, p_open: open, p_close: close, p_active: active }),
+  /** Lança atendimento feito por fora do site (ignora o horário de funcionamento) */
+  createAppointment: (
+    pin: string,
+    a: { service: string; start: Date; durationMin: number; name: string; phone: string; price: number }
+  ) =>
+    rpc<'ok' | 'senha_incorreta' | 'duracao_invalida' | 'nome_invalido' | 'horario_ocupado'>('admin_create_appointment', {
+      p_pin: pin,
+      p_service: a.service,
+      p_start: a.start.toISOString(),
+      p_duration_min: a.durationMin,
+      p_name: a.name,
+      p_phone: a.phone,
+      p_price: a.price,
+    }),
+  setPrice: (pin: string, id: string, price: number) => rpc<boolean>('admin_set_price', { p_pin: pin, p_id: id, p_price: price }),
 };
