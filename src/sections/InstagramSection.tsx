@@ -48,7 +48,8 @@ const ReelPreview = ({ src }: { src: string }) => {
       muted
       loop
       playsInline
-      preload="metadata"
+      poster={src.replace('.mp4', '.jpg')}
+      preload="none"
       aria-hidden="true"
       className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
     />

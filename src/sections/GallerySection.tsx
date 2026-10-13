@@ -84,7 +84,7 @@ export const GallerySection = () => {
     try {
       ioRef.current.unobserve(videoEl);
       videoEl.pause();
-      if (videoEl.preload !== 'metadata') videoEl.preload = 'metadata';
+      /* mantém o que já carregou */
     } catch { /* noop */ }
   };
 
@@ -131,7 +131,7 @@ export const GallerySection = () => {
             video.play().catch(() => { /* noop: autoplay bloqueado esperado */ });
           } else {
             try { video.pause(); } catch { /* noop */ }
-            if (video.preload !== 'metadata') video.preload = 'metadata';
+            /* mantém o que já carregou */
           }
         });
       },
@@ -296,10 +296,11 @@ export const GallerySection = () => {
                 <video
                   ref={videoRefCallback(video.id)}
                   data-video-id={video.id}
+                  poster={video.videoUrl.replace('.mp4', '.jpg')}
                   muted
                   loop
                   playsInline
-                  preload="metadata"
+                  preload="none"
                   disablePictureInPicture={false}
                   controlsList="nodownload nofullscreen noremoteplayback noaudiovolume"
                   onLoadedMetadata={(e) => ensureMuted(e.currentTarget)}
@@ -512,6 +513,7 @@ export const GallerySection = () => {
                   if (el) ensureMuted(el);
                 }}
                 src={(activeItem as VideoItem).videoUrl}
+                poster={(activeItem as VideoItem).videoUrl.replace('.mp4', '.jpg')}
                 className="w-full h-auto max-h-[86vh] rounded-2xl mx-auto bg-black shadow-2xl border border-white/10"
                 controls
                 muted
