@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Header } from './components/Header';
 import { Footer } from './components/Footer';
-import { WhatsAppButton } from './components/WhatsAppButton';
+import { ChatAssistant } from './components/ChatAssistant';
 import { HeroSection } from './sections/HeroSection';
 import { AboutSection } from './sections/AboutSection';
 import { ServicesSection } from './sections/ServicesSection';
@@ -43,7 +43,7 @@ function App() {
         <ContactSection />
       </main>
       <Footer />
-      <WhatsAppButton />
+      <ChatAssistant />
     </div>
   );
 }
