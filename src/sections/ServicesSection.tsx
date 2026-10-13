@@ -6,6 +6,7 @@ import {
   formatCurrency,
   getWhatsAppUrl,
   getServiceBookingMessage,
+  openBooking,
   Service,
 } from '../salonConfig';
 
@@ -109,6 +110,10 @@ export const ServicesSection = () => {
                 href={getBookUrl(service)}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={(e) => {
+                  e.preventDefault();
+                  openBooking(service.name);
+                }}
                 className={`ml-16 inline-flex items-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-full transition-all duration-400 ease-out ${
                   hoveredService === service.name
                     ? 'bg-gradient-rose text-brand-white shadow-glow-rose -translate-y-0.5'

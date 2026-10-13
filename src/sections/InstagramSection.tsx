@@ -1,336 +1,202 @@
-import { useEffect, useState } from 'react';
-import { Instagram, ArrowUpRight, Sparkles, Heart, Camera, Scissors } from 'lucide-react';
+import { useEffect, useRef } from 'react';
+import { Instagram, ArrowUpRight, Sparkles, Play, Zap, Gift, Eye, CalendarCheck } from 'lucide-react';
 import { SectionWrapper } from '../components/SectionWrapper';
-import { salonConfig, type InstagramPost } from '../salonConfig';
+import { salonConfig, openBooking } from '../salonConfig';
 
-declare global {
-  interface Window {
-    instgrm?: { Embeds: { process: () => void } };
-  }
-}
+/**
+ * Seção do Instagram pensada para levar a cliente ao perfil:
+ * - curiosidade: prévias dos vídeos com "veja o resultado completo"
+ * - exclusividade: novidades e horários extras saem primeiro nos Stories
+ * - reciprocidade: dicas gratuitas
+ * - baixo atrito: botão de seguir em destaque, "leva 2 segundos"
+ */
 
-type FeedItem = {
-  permalink?: string;
-  mediaType?: string;
-  mediaUrl?: string;
-  thumbnailUrl?: string;
-  prunedCaption?: string;
-  caption?: string;
-  sizes?: { medium?: { mediaUrl?: string }; large?: { mediaUrl?: string } };
-};
+const REELS = [
+  { src: '/Videos/video-01.mp4', hook: 'Progressiva: do frizz ao liso espelhado', tag: 'Antes & depois' },
+  { src: '/Videos/video-02.mp4', hook: 'Hidratação que devolve o brilho', tag: 'Transformação' },
+  { src: '/Videos/video-03.mp4', hook: 'Coloração do jeitinho que ela pediu', tag: 'Resultado real' },
+  { src: '/Videos/video-04.mp4', hook: 'Escova com acabamento de salão', tag: 'Bastidores' },
+];
 
-// Busca as últimas publicações no feed do Behold (aceita os dois formatos de JSON)
-const useInstagramFeed = (): InstagramPost[] | null => {
-  const [posts, setPosts] = useState<InstagramPost[] | null>(null);
+const PERKS = [
+  { icon: Zap, title: 'Horários extras primeiro', text: 'Encaixes e vagas de última hora saem antes nos Stories.' },
+  { icon: Gift, title: 'Promoções só para seguidoras', text: 'Condições especiais que não aparecem em outro lugar.' },
+  { icon: Eye, title: 'Antes & depois reais', text: 'Veja o resultado em clientes de verdade antes de agendar.' },
+];
+
+/** Vídeo que só toca quando aparece na tela (economiza internet) */
+const ReelPreview = ({ src }: { src: string }) => {
+  const ref = useRef<HTMLVideoElement>(null);
   useEffect(() => {
-    const url = salonConfig.instagramFeedUrl;
-    if (!url) return;
-    let cancelled = false;
-    fetch(url)
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((data: FeedItem[] | { posts?: FeedItem[] }) => {
-        const items = Array.isArray(data) ? data : data.posts || [];
-        const mapped = items
-          .filter((i) => i.permalink)
-          .map((i) => ({
-            url: i.permalink as string,
-            image:
-              i.sizes?.medium?.mediaUrl ||
-              i.sizes?.large?.mediaUrl ||
-              (i.mediaType === 'VIDEO' ? i.thumbnailUrl : i.mediaUrl) ||
-              i.thumbnailUrl,
-            caption: (i.prunedCaption || i.caption || '').split('\n')[0].slice(0, 80) || undefined,
-          }))
-          .filter((p) => p.image)
-          .slice(0, salonConfig.instagramPostsLimit);
-        if (!cancelled && mapped.length) setPosts(mapped);
-      })
-      .catch(() => {
-        /* se falhar, usa os posts fixos */
-      });
-    return () => {
-      cancelled = true;
-    };
+    const v = ref.current;
+    if (!v) return;
+    v.muted = true;
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) v.play().catch(() => undefined);
+        else v.pause();
+      },
+      { threshold: 0.35 }
+    );
+    io.observe(v);
+    return () => io.disconnect();
   }, []);
-  return posts;
-};
-
-const InstagramPostsGrid = () => {
-  const feed = useInstagramFeed();
-  const posts = feed || salonConfig.instagramPosts.slice(0, salonConfig.instagramPostsLimit);
-  const withImage = posts.filter((p) => p.image);
-  const embeds = posts.filter((p) => !p.image);
-
-  // Carrega o script oficial do Instagram só se houver posts sem foto
-  useEffect(() => {
-    if (!embeds.length) return;
-    if (window.instgrm) {
-      window.instgrm.Embeds.process();
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = 'https://www.instagram.com/embed.js';
-    script.async = true;
-    script.onload = () => window.instgrm?.Embeds.process();
-    document.body.appendChild(script);
-  }, [embeds.length]);
-
-  if (!posts.length) return null;
-
   return (
-    <div className="mt-10 md:mt-12 reveal-block">
-      {withImage.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 md:gap-4">
-          {withImage.map((post) => (
-            <a
-              key={post.url}
-              href={post.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={`Ver no Instagram${post.caption ? `: ${post.caption}` : ''}`}
-              className="group relative block aspect-square overflow-hidden rounded-2xl md:rounded-3xl border border-white/[0.08] bg-brand-blackSecondary"
-            >
-              <img
-                src={post.image}
-                alt={post.caption || `Trabalho de ${salonConfig.shortName}`}
-                loading="lazy"
-                decoding="async"
-                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-              />
-              <span className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-brand-black/55 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
-                <Instagram className="w-7 h-7 text-brand-white" strokeWidth={2} />
-                <span className="px-3 text-center text-sm font-semibold text-brand-white">
-                  {post.caption || 'Ver no Instagram'}
-                </span>
-              </span>
-            </a>
-          ))}
-        </div>
-      )}
-
-      {embeds.length > 0 && (
-        <div className={`flex flex-wrap justify-center gap-4 ${withImage.length ? 'mt-6' : ''}`}>
-          {embeds.map((post) => (
-            <div key={post.url} className="w-full max-w-[326px] overflow-hidden rounded-2xl">
-              <blockquote
-                className="instagram-media"
-                data-instgrm-permalink={post.url}
-                data-instgrm-version="14"
-                style={{ margin: 0, minWidth: 0, width: '100%', background: '#fff', borderRadius: 16 }}
-              >
-                <a href={post.url} target="_blank" rel="noopener noreferrer">
-                  Ver este post no Instagram
-                </a>
-              </blockquote>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="mt-8 text-center">
-        <a
-          href={salonConfig.instagramUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="btn-secondary inline-flex justify-center"
-        >
-          <Instagram className="w-5 h-5" strokeWidth={2.1} />
-          Ver mais no @{salonConfig.instagramUsername}
-        </a>
-      </div>
-    </div>
+    <video
+      ref={ref}
+      src={src}
+      muted
+      loop
+      playsInline
+      preload="metadata"
+      aria-hidden="true"
+      className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+    />
   );
 };
 
 export const InstagramSection = () => {
-  const hasInstagram = Boolean(salonConfig.instagramUrl);
-
-  if (!hasInstagram) return null;
+  if (!salonConfig.instagramUrl) return null;
+  const url = salonConfig.instagramUrl;
+  const handle = `@${salonConfig.instagramUsername}`;
 
   return (
     <SectionWrapper id="instagram" className="relative">
       <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
-        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-[700px] h-[420px] bg-gradient-to-br from-brand-pink/[0.06] via-brand-roseGold/[0.05] to-amber-500/[0.03] rounded-[3rem] blur-3xl" />
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[760px] h-[460px] bg-gradient-to-br from-brand-pink/[0.07] via-brand-roseGold/[0.05] to-amber-500/[0.04] rounded-[3rem] blur-3xl" />
       </div>
 
-      <div className="relative max-w-5xl mx-auto">
+      <div className="relative max-w-6xl mx-auto">
+        {/* Título */}
         <div className="text-center mb-10 md:mb-12 reveal-block">
-          <div className="inline-flex items-center justify-center w-14 h-14 md:w-16 md:h-16 rounded-2xl bg-gradient-to-br from-brand-pink via-brand-roseGold to-amber-500 mb-5 shadow-rose">
-            <Instagram className="w-6 h-6 md:w-7 md:h-7 text-brand-white" strokeWidth={2.1} />
-          </div>
           <span className="section-eyebrow mb-5">
             <Sparkles className="w-3.5 h-3.5 inline-block -mt-0.5 mr-1.5 opacity-80" strokeWidth={2.4} />
-            Siga de perto
+            Bastidores no Instagram
           </span>
           <h2 className="section-title mt-4">
-            Mais beleza, <span className="section-title-accent">inspiração e bastidores</span> todos os dias.
+            Veja <span className="section-title-accent">transformações reais</span> antes de agendar
           </h2>
-          <p className="section-subtitle mt-4 mb-0 max-w-2xl mx-auto">
-            Acompanhe nossos trabalhos, novidades e bastidores do salão.
+          <p className="section-subtitle mt-4 mb-0">
+            Toda semana tem resultado novo, dica de cuidado e novidade do salão. O próximo pode ser o seu.
           </p>
           <div className="section-divider" />
         </div>
 
-        <div className="rounded-[2rem] border border-white/[0.08] bg-gradient-to-br from-brand-blackSecondary/60 via-brand-black/40 to-brand-blackSecondary/60 backdrop-blur-sm shadow-soft-card overflow-hidden reveal-block">
-          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
-            <div className="relative p-7 md:p-9 lg:p-10 border-b md:border-b-0 md:border-r border-white/[0.07]">
-              <div className="absolute -top-20 -left-20 w-[280px] h-[280px] rounded-full bg-gradient-to-br from-brand-pink/25 to-brand-roseGold/15 blur-3xl opacity-60 pointer-events-none" aria-hidden="true" />
+        {/* Barra do perfil */}
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="group mx-auto mb-8 md:mb-10 flex max-w-xl items-center gap-4 rounded-full border border-white/10 bg-brand-blackSecondary/70 p-2 pr-3 sm:pr-2 backdrop-blur-sm transition-colors hover:border-brand-pink/40 reveal-block"
+        >
+          <span className="relative shrink-0 rounded-full bg-gradient-to-tr from-amber-400 via-brand-pink to-fuchsia-600 p-[2.5px]">
+            <span className="block rounded-full bg-brand-black p-[2px]">
+              <img src={salonConfig.logoPath} alt="" className="h-12 w-12 sm:h-14 sm:w-14 rounded-full object-cover" loading="lazy" />
+            </span>
+            <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-md bg-gradient-to-r from-brand-pink to-fuchsia-600 px-1.5 text-[9px] font-bold uppercase tracking-wide text-white">
+              Novo
+            </span>
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-semibold text-brand-white">{salonConfig.shortName}</span>
+            <span className="block truncate text-sm text-brand-pink">{handle}</span>
+          </span>
+          <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-[#f58529] via-[#dd2a7b] to-[#8134af] px-5 py-2.5 text-sm font-semibold text-white shadow-rose transition-transform group-hover:scale-[1.03]">
+            <Instagram className="w-4 h-4" /> Seguir
+          </span>
+          <ArrowUpRight className="sm:hidden w-5 h-5 text-brand-pink" />
+        </a>
 
-              <div className="relative flex items-center gap-4">
-                <div className="relative shrink-0">
-                  <div className="w-[76px] h-[76px] md:w-[88px] md:h-[88px] rounded-3xl bg-gradient-to-br from-brand-pink via-brand-roseGold to-amber-500 p-[2px]">
-                    <div className="w-full h-full rounded-[calc(1.5rem-2px)] bg-brand-blackSecondary flex items-center justify-center overflow-hidden">
-                      <img
-                        src={salonConfig.logoPath || '/logo.jpeg'}
-                        alt={`Logo ${salonConfig.shortName} — perfil oficial no Instagram`}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                        decoding="async"
-                      />
-                    </div>
-                  </div>
-                  <span className="absolute -bottom-1.5 -right-1.5 inline-flex items-center justify-center w-6 h-6 md:w-7 md:h-7 rounded-full bg-gradient-rose border-[3px] border-brand-blackSecondary">
-                    <Heart className="w-3 h-3 md:w-[14px] md:h-[14px] text-brand-white fill-brand-white" strokeWidth={2.1} />
+        {/* Prévias dos reels */}
+        <div className="-mx-5 sm:mx-0 overflow-x-auto sm:overflow-visible snap-x snap-mandatory reveal-block" style={{ scrollbarWidth: 'none' }}>
+          <div className="flex sm:grid sm:grid-cols-5 gap-3 md:gap-4 px-5 sm:px-0 pb-2">
+            {REELS.map((r) => (
+              <a
+                key={r.src}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`${r.hook} — ver no Instagram`}
+                className="group relative aspect-[9/16] w-[62%] sm:w-auto shrink-0 snap-center overflow-hidden rounded-3xl border border-white/10 bg-brand-blackSecondary"
+              >
+                <ReelPreview src={r.src} />
+                <span className="absolute inset-0 bg-gradient-to-t from-brand-black via-brand-black/10 to-brand-black/30" />
+                <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-brand-black/55 px-2.5 py-1 text-[11px] font-semibold text-brand-white backdrop-blur">
+                  <Play className="w-3 h-3 fill-current" /> {r.tag}
+                </span>
+                <span className="absolute inset-x-0 bottom-0 p-4">
+                  <span className="block font-display text-[1.05rem] leading-snug text-brand-white text-balance">{r.hook}</span>
+                  <span className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-pinkLight">
+                    Ver resultado completo <ArrowUpRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
                   </span>
-                </div>
-                <div className="min-w-0">
-                  <p className="text-brand-white/70 text-[11px] md:text-xs font-semibold uppercase tracking-wide-sm mb-1.5">
-                    Perfil oficial · verificado
-                  </p>
-                  <h3 className="font-display tracking-tight leading-[1.05] text-brand-white text-[1.75rem] md:text-[2.1rem] text-balance max-w-[18ch]">
-                    Bianca Alves
-                  </h3>
-                  <a
-                    href={salonConfig.instagramUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 mt-1.5 text-brand-pink font-semibold text-sm md:text-base group"
-                  >
-                    <span className="tracking-wide">@{salonConfig.instagramUsername}</span>
-                    <ArrowUpRight className="w-4 h-4 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" strokeWidth={2.2} />
-                  </a>
-                </div>
-              </div>
+                </span>
+              </a>
+            ))}
 
-              <p className="relative mt-7 md:mt-8 text-brand-white/75 leading-relaxed text-[0.95rem] md:text-[1.02rem] max-w-[40ch] text-pretty">
-                Veja novos <span className="text-brand-pink font-semibold">antes &amp; depois</span>,
-                transformações capilares, dicas de cuidados e tudo que
-                acontece nos bastidores do nosso salão.
-              </p>
-
-              <div className="relative mt-7 md:mt-8 grid grid-cols-3 gap-3 md:gap-4 max-w-[400px]">
-                <div className="rounded-2xl bg-white/[0.04] border border-white/[0.07] px-3 py-3.5 md:px-4 md:py-4">
-                  <Camera className="w-5 h-5 md:w-[22px] md:h-[22px] text-brand-pink mb-2" strokeWidth={2.1} />
-                  <p className="font-display text-brand-white tracking-tight text-[1.25rem] md:text-[1.45rem] leading-none">
-                    Diário
-                  </p>
-                  <p className="text-brand-white/55 text-[11px] md:text-xs font-medium mt-1 tracking-wide-sm">
-                    de trabalhos
-                  </p>
-                </div>
-                <div className="rounded-2xl bg-white/[0.04] border border-white/[0.07] px-3 py-3.5 md:px-4 md:py-4">
-                  <Scissors className="w-5 h-5 md:w-[22px] md:h-[22px] text-brand-roseGold mb-2" strokeWidth={2.1} />
-                  <p className="font-display text-brand-white tracking-tight text-[1.25rem] md:text-[1.45rem] leading-none">
-                    Cortes
-                  </p>
-                  <p className="text-brand-white/55 text-[11px] md:text-xs font-medium mt-1 tracking-wide-sm">
-                    &amp; colorações
-                  </p>
-                </div>
-                <div className="rounded-2xl bg-white/[0.04] border border-white/[0.07] px-3 py-3.5 md:px-4 md:py-4">
-                  <Heart className="w-5 h-5 md:w-[22px] md:h-[22px] text-brand-pinkLight mb-2" strokeWidth={2.1} />
-                  <p className="font-display text-brand-white tracking-tight text-[1.25rem] md:text-[1.45rem] leading-none">
-                    Dicas
-                  </p>
-                  <p className="text-brand-white/55 text-[11px] md:text-xs font-medium mt-1 tracking-wide-sm">
-                    de beleza
-                  </p>
-                </div>
-              </div>
-
-              <div className="relative mt-8 md:mt-10 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                <a
-                  href={salonConfig.instagramUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-primary justify-center sm:justify-start"
-                  aria-label="Abrir perfil oficial do Instagram de Bianca Alves em nova aba"
-                >
-                  <Instagram className="w-5 h-5" strokeWidth={2.1} />
-                  Conhecer o Instagram
-                  <ArrowUpRight className="w-4 h-4 opacity-80" strokeWidth={2.2} />
-                </a>
-                <a
-                  href={salonConfig.instagramUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-secondary justify-center sm:justify-start"
-                >
-                  @{salonConfig.instagramUsername}
-                </a>
-              </div>
-            </div>
-
-            <div className="relative p-7 md:p-9 lg:p-10 overflow-hidden">
-              <div className="absolute -bottom-28 -right-28 w-[320px] h-[320px] rounded-full bg-gradient-to-tr from-brand-roseGold/25 via-brand-pink/20 to-transparent blur-3xl opacity-70 pointer-events-none" aria-hidden="true" />
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(232,138,162,0.08)_0%,transparent_55%)]" aria-hidden="true" />
-
-              <div className="relative">
-                <p className="section-eyebrow mb-4">O que você vai encontrar</p>
-
-                <ul className="space-y-4 md:space-y-[18px]">
-                  {[
-                    {
-                      label: 'Antes & depois de transformações reais',
-                      accent: 'Cada resultado único, feito sob medida.',
-                      icon: Heart,
-                    },
-                    {
-                      label: 'Bastidores do atendimento no salão',
-                      accent: 'Nosso processo do início ao fim.',
-                      icon: Camera,
-                    },
-                    {
-                      label: 'Tendências e dicas capilares',
-                      accent: 'Para cuidar do cabelo no dia a dia.',
-                      icon: Scissors,
-                    },
-                    {
-                      label: 'Novidades e promoções primeiro',
-                      accent: 'Quem segue por lá, recebe antes.',
-                      icon: Sparkles,
-                    },
-                  ].map((item) => (
-                    <li key={item.label} className="flex items-start gap-4 reveal-block" style={{ transitionDelay: '80ms' }}>
-                      <span className="shrink-0 mt-0.5 inline-flex items-center justify-center w-10 h-10 md:w-11 md:h-11 rounded-2xl bg-gradient-to-br from-brand-pink/18 to-brand-roseGold/18 border border-brand-pink/25 text-brand-pink">
-                        <item.icon className="w-4.5 h-4.5 md:w-5 md:h-5" strokeWidth={2.1} />
-                      </span>
-                      <span className="min-w-0">
-                        <p className="text-brand-white font-semibold leading-snug text-[0.98rem] md:text-[1.04rem] text-balance">
-                          {item.label}
-                        </p>
-                        <p className="text-brand-white/55 text-sm md:text-[0.92rem] leading-relaxed mt-1 text-pretty">
-                          {item.accent}
-                        </p>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-
-                <div className="relative mt-8 md:mt-9 rounded-2xl border border-white/[0.08] bg-brand-black/40 backdrop-blur-sm p-5 md:p-6">
-                  <p className="text-brand-pinkLight font-semibold text-xs md:text-[11px] uppercase tracking-wide-md mb-2">
-                    Um convite
-                  </p>
-                  <p className="font-display text-brand-white tracking-tight leading-[1.15] text-[1.125rem] md:text-[1.3rem] max-w-[28ch] text-balance">
-                    Vamos combinar? O próximo <span className="bg-gradient-to-r from-brand-pink via-brand-pinkLight to-brand-roseGold bg-clip-text text-transparent">cabelo dos sonhos</span> pode começar por ali.
-                  </p>
-                </div>
-              </div>
-            </div>
+            {/* Cartão final: curiosidade + chamada */}
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group relative aspect-[9/16] w-[62%] sm:w-auto shrink-0 snap-center overflow-hidden rounded-3xl border border-brand-pink/30"
+            >
+              <img
+                src={salonConfig.heroImageUrl}
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover blur-[6px] scale-110 opacity-60"
+                loading="lazy"
+              />
+              <span className="absolute inset-0 bg-gradient-to-br from-brand-pink/70 via-brand-roseGold/70 to-fuchsia-900/80" />
+              <span className="relative flex h-full flex-col items-center justify-center p-5 text-center">
+                <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15 backdrop-blur">
+                  <Instagram className="w-7 h-7 text-white" />
+                </span>
+                <span className="mt-4 font-display text-xl leading-tight text-white">Tem muito mais lá</span>
+                <span className="mt-2 text-sm text-white/85">Novos antes & depois toda semana</span>
+                <span className="mt-5 inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-semibold text-brand-black transition-transform group-hover:scale-105">
+                  Ver perfil <ArrowUpRight className="w-4 h-4" />
+                </span>
+              </span>
+            </a>
           </div>
         </div>
 
-        <InstagramPostsGrid />
+        {/* Por que seguir */}
+        <div className="mt-10 grid gap-3 sm:grid-cols-3 reveal-block">
+          {PERKS.map((p) => (
+            <div key={p.title} className="flex gap-3 rounded-2xl border border-white/[0.07] bg-brand-blackSecondary/60 p-4">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-pink/20 to-brand-roseGold/20 text-brand-pink">
+                <p.icon className="w-5 h-5" strokeWidth={2.1} />
+              </span>
+              <span>
+                <span className="block font-semibold text-brand-white">{p.title}</span>
+                <span className="mt-0.5 block text-sm leading-relaxed text-brand-white/60">{p.text}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Chamada final */}
+        <div className="mt-10 flex flex-col items-center gap-3 text-center reveal-block">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#f58529] via-[#dd2a7b] to-[#8134af] px-7 py-3.5 font-semibold text-white shadow-rose transition-transform hover:scale-[1.03]"
+            >
+              <Instagram className="w-5 h-5" /> Seguir {handle}
+            </a>
+            <button
+              type="button"
+              onClick={() => openBooking()}
+              className="btn-secondary justify-center"
+            >
+              <CalendarCheck className="w-5 h-5" /> Já quero agendar
+            </button>
+          </div>
+          <p className="text-xs text-brand-white/45">Leva 2 segundos e você não perde nenhuma vaga extra 💖</p>
+        </div>
       </div>
     </SectionWrapper>
   );

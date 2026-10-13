@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Calendar, Sparkles, ArrowDown, Phone } from 'lucide-react';
 import { Logo } from '../components/Logo';
-import { salonConfig, getWhatsAppUrl } from '../salonConfig';
+import { salonConfig, getWhatsAppUrl, openBooking } from '../salonConfig';
 
 export const HeroSection = () => {
   const heroRef = useRef<HTMLElement | null>(null);
@@ -279,10 +279,14 @@ export const HeroSection = () => {
               href={getWhatsAppUrl(salonConfig.whatsappNumber)}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={(e) => {
+                e.preventDefault();
+                openBooking();
+              }}
               className="btn-primary min-w-[240px] sm:min-w-[260px]"
             >
               <Calendar className="w-5 h-5" />
-              Agendar pelo WhatsApp
+              Agendar meu horário
             </a>
             <button onClick={handleScrollToServices} className="btn-secondary min-w-[240px] sm:min-w-[260px]">
               <Phone className="w-4 h-4" strokeWidth={2.2} />
