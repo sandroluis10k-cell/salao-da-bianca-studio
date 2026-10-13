@@ -19,7 +19,6 @@ import {
   getBusy,
   getHours,
   getServices,
-  googleCalendarLink,
   todayKey,
   toDate,
   weekdayOf,
@@ -36,7 +35,7 @@ type Action = { label: string; run: () => void };
 type Msg =
   | { id: number; from: 'bot' | 'user'; content: ReactNode }
   | { id: number; from: 'actions'; actions: Action[] }
-  | { id: number; from: 'link'; label: string; href: string; tone: 'whatsapp' | 'calendar' };
+  | { id: number; from: 'link'; label: string; href: string; tone: 'whatsapp' };
 type NewMsg = Msg extends infer M ? (M extends Msg ? Omit<M, 'id'> : never) : never;
 
 type Booking = { service: Service; duration: number; day?: string; start?: Date; name?: string; phone?: string };
@@ -318,7 +317,6 @@ export const ChatAssistant = () => {
         const r = await book(b.service.name, b.start, b.name, b.phone);
         setTyping(false);
         const start = new Date(r.start_at);
-        const end = new Date(r.end_at);
         const when = `${fmtDayLong(b.day)} às ${fmtTime(start)}`;
         push({
           from: 'bot',
@@ -339,19 +337,7 @@ export const ChatAssistant = () => {
           tone: 'whatsapp',
           label: 'Enviar confirmação para a Bianca',
           href: waLink(
-            `Olá, Bianca! Acabei de agendar pelo site:\n💇‍♀️ ${b.service.name}\n📅 ${when}\n👤 ${b.name}\nAté lá! 😊`
-          ),
-        });
-        push({
-          from: 'link',
-          tone: 'calendar',
-          label: 'Salvar na minha agenda',
-          href: googleCalendarLink(
-            `${b.service.name} — ${salonConfig.shortName}`,
-            start,
-            end,
-            `Agendado pelo site. Dúvidas: WhatsApp ${salonConfig.whatsappDisplay}`,
-            formatAddress(salonConfig.address)
+            `Olá, Bianca! Acabei de agendar pelo site:\nServiço: ${b.service.name}\nData: ${when}\nNome: ${b.name}\nAté lá!`
           ),
         });
         booking.current = null;
@@ -610,13 +596,9 @@ export const ChatAssistant = () => {
                     href={m.href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className={`inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold hover:brightness-110 ${
-                      m.tone === 'whatsapp'
-                        ? 'bg-[#25D366] text-white'
-                        : 'border border-brand-pink/50 text-brand-pinkLight bg-brand-blackSecondary'
-                    }`}
+                    className="inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold hover:brightness-110 bg-[#25D366] text-white"
                   >
-                    {m.tone === 'whatsapp' ? <MessageCircle className="w-4 h-4" /> : <CalendarCheck className="w-4 h-4" />}
+                    <MessageCircle className="w-4 h-4" />
                     {m.label}
                   </a>
                 </div>

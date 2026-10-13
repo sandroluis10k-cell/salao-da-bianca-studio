@@ -297,7 +297,7 @@ export const AdminAgenda = () => {
                               <a
                                 href={waClient(
                                   a.client_phone,
-                                  `Oi, ${a.client_name.split(' ')[0]}! Aqui é a Bianca 💖 Confirmando seu horário de ${a.service} na ${when}. Te espero!`
+                                  `Oi, ${a.client_name.split(' ')[0]}! Aqui é a Bianca. Confirmando seu horário de ${a.service} na ${when}. Te espero!`
                                 )}
                                 target="_blank"
                                 rel="noopener noreferrer"

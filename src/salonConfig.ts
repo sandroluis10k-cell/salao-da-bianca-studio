@@ -138,16 +138,22 @@ export const getGoogleMapsUrl = (address: Address): string =>
   `https://www.google.com/maps/search/?api=1&query=${encodeAddressForMaps(address)}`;
 
 const DEFAULT_WHATSAPP_MESSAGE =
-  "Olá, Bianca! Tudo bem? Vi o trabalho do salão e gostaria de saber mais sobre os serviços e horários disponíveis para agendar meu atendimento. 😊";
+  "Olá, Bianca! Tudo bem? Vi o trabalho do salão e gostaria de saber mais sobre os serviços e horários disponíveis para agendar meu atendimento.";
 
+const isMobileDevice = (): boolean =>
+  typeof navigator !== "undefined" &&
+  /Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|Opera Mini|IEMobile/i.test(navigator.userAgent);
+
+/** Celular: abre direto o app (api.whatsapp.com). Computador: abre o WhatsApp Web. */
 export const getWhatsAppUrl = (
   number: string,
   message: string = encodeURIComponent(DEFAULT_WHATSAPP_MESSAGE)
-): string => `https://wa.me/${number}?text=${message}`;
+): string =>
+  `https://${isMobileDevice() ? "api" : "web"}.whatsapp.com/send?phone=${number}&text=${message}`;
 
 export const getServiceBookingMessage = (service: Service): string => {
   const priceText = formatCurrency(service.price);
-  const message = `Olá, Bianca! Tudo bem? Vi o trabalho do salão pelo site e gostaria de agendar o serviço ${service.name}, no valor anunciado de ${priceText}. Pode me informar quais horários estão disponíveis? 😊`;
+  const message = `Olá, Bianca! Tudo bem? Vi o trabalho do salão pelo site e gostaria de agendar o serviço ${service.name}, no valor anunciado de ${priceText}. Pode me informar quais horários estão disponíveis?`;
   return encodeURIComponent(message);
 };
 
