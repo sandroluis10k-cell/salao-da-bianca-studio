@@ -1,0 +1,3 @@
+{
+  "rewrites": [{ "source": "/agenda", "destination": "/index.html" }]
+}
