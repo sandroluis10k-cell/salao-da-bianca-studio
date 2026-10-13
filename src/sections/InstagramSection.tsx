@@ -1,6 +1,146 @@
+import { useEffect, useState } from 'react';
 import { Instagram, ArrowUpRight, Sparkles, Heart, Camera, Scissors } from 'lucide-react';
 import { SectionWrapper } from '../components/SectionWrapper';
-import { salonConfig } from '../salonConfig';
+import { salonConfig, type InstagramPost } from '../salonConfig';
+
+declare global {
+  interface Window {
+    instgrm?: { Embeds: { process: () => void } };
+  }
+}
+
+type FeedItem = {
+  permalink?: string;
+  mediaType?: string;
+  mediaUrl?: string;
+  thumbnailUrl?: string;
+  prunedCaption?: string;
+  caption?: string;
+  sizes?: { medium?: { mediaUrl?: string }; large?: { mediaUrl?: string } };
+};
+
+// Busca as últimas publicações no feed do Behold (aceita os dois formatos de JSON)
+const useInstagramFeed = (): InstagramPost[] | null => {
+  const [posts, setPosts] = useState<InstagramPost[] | null>(null);
+  useEffect(() => {
+    const url = salonConfig.instagramFeedUrl;
+    if (!url) return;
+    let cancelled = false;
+    fetch(url)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((data: FeedItem[] | { posts?: FeedItem[] }) => {
+        const items = Array.isArray(data) ? data : data.posts || [];
+        const mapped = items
+          .filter((i) => i.permalink)
+          .map((i) => ({
+            url: i.permalink as string,
+            image:
+              i.sizes?.medium?.mediaUrl ||
+              i.sizes?.large?.mediaUrl ||
+              (i.mediaType === 'VIDEO' ? i.thumbnailUrl : i.mediaUrl) ||
+              i.thumbnailUrl,
+            caption: (i.prunedCaption || i.caption || '').split('\n')[0].slice(0, 80) || undefined,
+          }))
+          .filter((p) => p.image)
+          .slice(0, salonConfig.instagramPostsLimit);
+        if (!cancelled && mapped.length) setPosts(mapped);
+      })
+      .catch(() => {
+        /* se falhar, usa os posts fixos */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return posts;
+};
+
+const InstagramPostsGrid = () => {
+  const feed = useInstagramFeed();
+  const posts = feed || salonConfig.instagramPosts.slice(0, salonConfig.instagramPostsLimit);
+  const withImage = posts.filter((p) => p.image);
+  const embeds = posts.filter((p) => !p.image);
+
+  // Carrega o script oficial do Instagram só se houver posts sem foto
+  useEffect(() => {
+    if (!embeds.length) return;
+    if (window.instgrm) {
+      window.instgrm.Embeds.process();
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://www.instagram.com/embed.js';
+    script.async = true;
+    script.onload = () => window.instgrm?.Embeds.process();
+    document.body.appendChild(script);
+  }, [embeds.length]);
+
+  if (!posts.length) return null;
+
+  return (
+    <div className="mt-10 md:mt-12 reveal-block">
+      {withImage.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 md:gap-4">
+          {withImage.map((post) => (
+            <a
+              key={post.url}
+              href={post.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`Ver no Instagram${post.caption ? `: ${post.caption}` : ''}`}
+              className="group relative block aspect-square overflow-hidden rounded-2xl md:rounded-3xl border border-white/[0.08] bg-brand-blackSecondary"
+            >
+              <img
+                src={post.image}
+                alt={post.caption || `Trabalho de ${salonConfig.shortName}`}
+                loading="lazy"
+                decoding="async"
+                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+              />
+              <span className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-brand-black/55 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+                <Instagram className="w-7 h-7 text-brand-white" strokeWidth={2} />
+                <span className="px-3 text-center text-sm font-semibold text-brand-white">
+                  {post.caption || 'Ver no Instagram'}
+                </span>
+              </span>
+            </a>
+          ))}
+        </div>
+      )}
+
+      {embeds.length > 0 && (
+        <div className={`flex flex-wrap justify-center gap-4 ${withImage.length ? 'mt-6' : ''}`}>
+          {embeds.map((post) => (
+            <div key={post.url} className="w-full max-w-[326px] overflow-hidden rounded-2xl">
+              <blockquote
+                className="instagram-media"
+                data-instgrm-permalink={post.url}
+                data-instgrm-version="14"
+                style={{ margin: 0, minWidth: 0, width: '100%', background: '#fff', borderRadius: 16 }}
+              >
+                <a href={post.url} target="_blank" rel="noopener noreferrer">
+                  Ver este post no Instagram
+                </a>
+              </blockquote>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-8 text-center">
+        <a
+          href={salonConfig.instagramUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn-secondary inline-flex justify-center"
+        >
+          <Instagram className="w-5 h-5" strokeWidth={2.1} />
+          Ver mais no @{salonConfig.instagramUsername}
+        </a>
+      </div>
+    </div>
+  );
+};
 
 export const InstagramSection = () => {
   const hasInstagram = Boolean(salonConfig.instagramUrl);
@@ -189,6 +329,8 @@ export const InstagramSection = () => {
             </div>
           </div>
         </div>
+
+        <InstagramPostsGrid />
       </div>
     </SectionWrapper>
   );
