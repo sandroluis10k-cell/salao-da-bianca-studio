@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -264,4 +263,10 @@
     mask-image: linear-gradient(180deg, transparent 0%, #000 15%, #000 85%, transparent 100%);
     -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 15%, #000 85%, transparent 100%);
   }
+}
+
+
+/* Celular: desfoques decorativos mais leves (mesmo visual, menos processamento ao rolar) */
+@media (max-width: 767px) {
+  .blur-3xl { --tw-blur: blur(36px); }
 }
