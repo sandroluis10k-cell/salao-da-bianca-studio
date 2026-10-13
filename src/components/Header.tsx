@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Menu, X, Calendar, ChevronRight } from 'lucide-react';
 import { Logo } from './Logo';
-import { salonConfig, getWhatsAppUrl } from '../salonConfig';
+import { salonConfig, getWhatsAppUrl, openBooking } from '../salonConfig';
 
 const navLinks = [
   { id: 'inicio', label: 'Início' },
@@ -96,6 +96,10 @@ export const Header = () => {
               href={getWhatsAppUrl(salonConfig.whatsappNumber)}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={(e) => {
+                e.preventDefault();
+                openBooking();
+              }}
               className="btn-primary text-[13px] py-2.5 px-5"
             >
               <Calendar className="w-4 h-4" strokeWidth={2.2} />
@@ -149,6 +153,11 @@ export const Header = () => {
               href={getWhatsAppUrl(salonConfig.whatsappNumber)}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={(e) => {
+                e.preventDefault();
+                setIsOpen(false);
+                openBooking();
+              }}
               className="btn-primary w-full text-[14px]"
             >
               <Calendar className="w-4 h-4" strokeWidth={2.2} />

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { MessageCircle, X, Send, MapPin, ExternalLink } from 'lucide-react';
+import { MessageCircle, X, Send, MapPin, ExternalLink, CalendarCheck, Clock } from 'lucide-react';
 import {
   salonConfig,
   formatCurrency,
@@ -8,25 +8,50 @@ import {
   getWhatsAppUrl,
   type Service,
 } from '../salonConfig';
+import {
+  addDays,
+  book,
+  fmtDayLong,
+  fmtDayShort,
+  fmtTime,
+  freeSlots,
+  friendlyError,
+  getBusy,
+  getHours,
+  getServices,
+  googleCalendarLink,
+  todayKey,
+  toDate,
+  weekdayOf,
+  type HoursRow,
+  type ServiceRow,
+} from '../agendaApi';
 
 /**
  * Assistente de atendimento do site.
- * Responde serviços, preços, endereço e horários e leva o cliente
- * para o WhatsApp da Bianca com a mensagem já escrita.
+ * Responde serviços, preços, endereço e horários e AGENDA direto na agenda da Bianca.
  */
 
 type Action = { label: string; run: () => void };
 type Msg =
   | { id: number; from: 'bot' | 'user'; content: ReactNode }
   | { id: number; from: 'actions'; actions: Action[] }
-  | { id: number; from: 'whatsapp'; label: string; message: string };
+  | { id: number; from: 'link'; label: string; href: string; tone: 'whatsapp' | 'calendar' };
 type NewMsg = Msg extends infer M ? (M extends Msg ? Omit<M, 'id'> : never) : never;
+
+type Booking = { service: Service; duration: number; day?: string; start?: Date; name?: string; phone?: string };
+type Expect = null | 'name' | 'phone';
+
+const DAYS_AHEAD = 14;
 
 const normalize = (s: string) =>
   s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
 const waLink = (message: string) =>
   getWhatsAppUrl(salonConfig.whatsappNumber, encodeURIComponent(message));
+
+const fmtPhone = (digits: string) =>
+  digits.length === 11 ? `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}` : digits;
 
 // Palavras que identificam cada serviço (combos primeiro)
 const SERVICE_KEYWORDS: { match: RegExp; name: string }[] = [
@@ -49,22 +74,34 @@ export const ChatAssistant = () => {
   const [typing, setTyping] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [text, setText] = useState('');
+  const [expect, setExpect] = useState<Expect>(null);
   const started = useRef(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const queue = useRef<Promise<void>>(Promise.resolve());
+  const booking = useRef<Booking | null>(null);
+  const agenda = useRef<{ hours: HoursRow[]; services: ServiceRow[] } | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setVisible(true), 1200);
     return () => window.clearTimeout(timer);
   }, []);
 
+  // Botões "Agendar" do site abrem o chat direto no agendamento (ver openBooking em salonConfig)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const name = (e as CustomEvent<{ service?: string }>).detail?.service;
+      openToBooking(salonConfig.services.find((s) => s.name === name));
+    };
+    window.addEventListener('abrir-agendamento', handler);
+    return () => window.removeEventListener('abrir-agendamento', handler);
+  });
+
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, typing]);
 
-  const push = (m: NewMsg) =>
-    setMessages((prev) => [...prev, { ...m, id: nextId++ } as Msg]);
+  const push = (m: NewMsg) => setMessages((prev) => [...prev, { ...m, id: nextId++ } as Msg]);
 
   // Mensagens do assistente saem em fila, com "digitando..."
   const bot = (content: ReactNode, delay = 550) => {
@@ -80,25 +117,30 @@ export const ChatAssistant = () => {
         })
     );
   };
-  const after = (fn: () => void) => {
-    queue.current = queue.current.then(() => fn());
+  const after = (fn: () => void | Promise<void>) => {
+    queue.current = queue.current.then(() => fn()).catch(() => undefined);
   };
   const actions = (list: Action[]) => after(() => push({ from: 'actions', actions: list }));
-  const whatsapp = (message: string, label = 'Agendar pelo WhatsApp') =>
-    after(() => push({ from: 'whatsapp', label, message }));
-
+  const whatsapp = (message: string, label = 'Falar no WhatsApp') =>
+    after(() => push({ from: 'link', label, href: waLink(message), tone: 'whatsapp' }));
   const clearActions = () => setMessages((prev) => prev.filter((m) => m.from !== 'actions'));
-
   const user = (content: string) => {
     clearActions();
     push({ from: 'user', content });
   };
 
-  /* ---------- fluxos ---------- */
+  const loadAgenda = async () => {
+    if (agenda.current) return agenda.current;
+    const [hours, services] = await Promise.all([getHours(), getServices()]);
+    agenda.current = { hours, services };
+    return agenda.current;
+  };
+
+  /* ---------- menu ---------- */
   const menu = () =>
     actions([
-      { label: '💇‍♀️ Serviços e preços', run: () => (user('Serviços e preços'), prices()) },
       { label: '📅 Agendar horário', run: () => (user('Agendar horário'), chooseService()) },
+      { label: '💇‍♀️ Serviços e preços', run: () => (user('Serviços e preços'), prices()) },
       { label: '📍 Endereço', run: () => (user('Endereço'), address()) },
       { label: '🕒 Horários', run: () => (user('Horários'), hours()) },
       { label: '💬 Falar com a Bianca', run: () => (user('Falar com a Bianca'), talk()) },
@@ -107,6 +149,8 @@ export const ChatAssistant = () => {
   const backToMenu: Action = {
     label: 'Menu',
     run: () => {
+      setExpect(null);
+      booking.current = null;
       user('Menu');
       bot('Como posso te ajudar?');
       menu();
@@ -133,38 +177,204 @@ export const ChatAssistant = () => {
 
   const serviceButtons = () =>
     actions([
-      ...salonConfig.services.map((s) => ({
-        label: s.name,
-        run: () => (user(s.name), service(s)),
-      })),
+      ...salonConfig.services.map((s) => ({ label: s.name, run: () => (user(s.name), startBooking(s)) })),
       backToMenu,
     ]);
 
   const chooseService = () => {
-    bot('Perfeito! Qual serviço você quer fazer?');
+    bot('Vamos agendar! 💖 Qual serviço você quer fazer?');
     serviceButtons();
   };
 
-  const service = (s: Service) => {
+  /* ---------- AGENDAMENTO ---------- */
+  const startBooking = (s: Service) => {
+    after(async () => {
+      try {
+        const ag = await loadAgenda();
+        const dur = ag.services.find((x) => x.name === s.name)?.duration_min ?? 60;
+        booking.current = { service: s, duration: dur };
+        bot(
+          <div>
+            <p>
+              <strong>{s.name}</strong> — <span className="text-brand-pinkLight font-semibold">{formatCurrency(s.price)}</span>
+            </p>
+            <p className="mt-1 flex items-center gap-1.5 text-brand-white/70 text-[13px]">
+              <Clock className="w-3.5 h-3.5" /> Duração aproximada: {dur >= 60 ? `${Math.floor(dur / 60)}h${dur % 60 ? dur % 60 : ''}` : `${dur} min`}
+            </p>
+          </div>
+        );
+        chooseDay();
+      } catch {
+        bot('Não consegui abrir a agenda agora 😕 Mas a Bianca agenda pra você no WhatsApp:');
+        whatsapp(`Olá, Bianca! Vi o site e gostaria de agendar: ${s.name}.`, 'Agendar pelo WhatsApp');
+        menu();
+      }
+    });
+  };
+
+  const chooseDay = () => {
+    after(async () => {
+      const b = booking.current;
+      const ag = agenda.current;
+      if (!b || !ag) return;
+      const start = todayKey();
+      const days: string[] = [];
+      for (let i = 0; i < DAYS_AHEAD; i++) {
+        const k = addDays(start, i);
+        if (ag.hours.some((h) => h.weekday === weekdayOf(k) && h.active)) days.push(k);
+      }
+      // Busca a ocupação das próximas 2 semanas de uma vez
+      let busy: Awaited<ReturnType<typeof getBusy>> = [];
+      try {
+        busy = await getBusy(toDate(start, '00:00'), toDate(addDays(start, DAYS_AHEAD), '00:00'));
+      } catch {
+        /* segue sem ocupação; o banco valida no final */
+      }
+      const withSlots = days.filter((d) => freeSlots(d, b.duration, ag.hours, busy).length > 0);
+      if (!withSlots.length) {
+        bot('Poxa, a agenda das próximas duas semanas está cheia 😕 Fala com a Bianca que ela tenta um encaixe:');
+        whatsapp(`Olá, Bianca! Queria agendar ${b.service.name}, mas não achei horário no site. Tem algum encaixe?`, 'Pedir encaixe no WhatsApp');
+        actions([backToMenu]);
+        return;
+      }
+      bot('Qual dia fica melhor pra você?');
+      actions([
+        ...withSlots.slice(0, 10).map((d) => ({
+          label: fmtDayShort(d),
+          run: () => {
+            user(fmtDayShort(d));
+            chooseTime(d, busy);
+          },
+        })),
+        { label: 'Trocar serviço', run: () => (user('Trocar serviço'), chooseService()) },
+      ]);
+    });
+  };
+
+  const chooseTime = (day: string, busy: Awaited<ReturnType<typeof getBusy>>) => {
+    const b = booking.current;
+    const ag = agenda.current;
+    if (!b || !ag) return;
+    b.day = day;
+    const slots = freeSlots(day, b.duration, ag.hours, busy);
+    bot(<span>Horários livres na <strong>{fmtDayLong(day)}</strong>:</span>);
+    actions([
+      ...slots.map((t) => ({
+        label: fmtTime(t),
+        run: () => {
+          user(fmtTime(t));
+          b.start = t;
+          askName();
+        },
+      })),
+      { label: 'Outro dia', run: () => (user('Outro dia'), chooseDay()) },
+    ]);
+  };
+
+  const askName = () => {
+    bot('Perfeito! Qual é o seu nome?');
+    after(() => {
+      setExpect('name');
+      inputRef.current?.focus();
+    });
+  };
+
+  const askPhone = () => {
+    bot('E o seu WhatsApp com DDD? (a Bianca usa para confirmar com você)');
+    after(() => {
+      setExpect('phone');
+      inputRef.current?.focus();
+    });
+  };
+
+  const confirmBooking = () => {
+    const b = booking.current;
+    if (!b?.start || !b.name || !b.phone || !b.day) return;
+    const end = new Date(b.start.getTime() + b.duration * 60_000);
     bot(
       <div>
-        <p>
-          <strong>{s.name}</strong> — <span className="text-brand-pinkLight font-semibold">{formatCurrency(s.price)}</span>
-        </p>
-        <p className="mt-2 text-brand-white/70 text-[13px]">
-          O valor pode variar conforme o comprimento e o volume do cabelo. A Bianca confirma tudo com você no WhatsApp.
-        </p>
+        <p className="mb-2">Confere se está tudo certo:</p>
+        <div className="space-y-1 rounded-xl bg-brand-black/60 border border-white/10 p-3 text-[13.5px]">
+          <p>💇‍♀️ <strong>{b.service.name}</strong> ({formatCurrency(b.service.price)})</p>
+          <p>📅 {fmtDayLong(b.day)}</p>
+          <p>🕒 {fmtTime(b.start)} às {fmtTime(end)}</p>
+          <p>👤 {b.name} · {fmtPhone(b.phone)}</p>
+        </div>
       </div>
     );
-    whatsapp(
-      `Olá, Bianca! Tudo bem? Vi o site e gostaria de agendar: ${s.name} (${formatCurrency(s.price)}). Quais horários você tem disponíveis? 😊`
-    );
     actions([
-      { label: 'Ver outros serviços', run: () => (user('Ver outros serviços'), prices()) },
+      { label: '✅ Confirmar agendamento', run: () => (user('Confirmar'), doBook()) },
+      { label: 'Mudar horário', run: () => (user('Mudar horário'), chooseDay()) },
       backToMenu,
     ]);
   };
 
+  const doBook = () => {
+    after(async () => {
+      const b = booking.current;
+      if (!b?.start || !b.name || !b.phone || !b.day) return;
+      setTyping(true);
+      try {
+        const r = await book(b.service.name, b.start, b.name, b.phone);
+        setTyping(false);
+        const start = new Date(r.start_at);
+        const end = new Date(r.end_at);
+        const when = `${fmtDayLong(b.day)} às ${fmtTime(start)}`;
+        push({
+          from: 'bot',
+          content: (
+            <div>
+              <p className="flex items-center gap-2 font-semibold text-brand-pinkLight">
+                <CalendarCheck className="w-4 h-4" /> Horário reservado!
+              </p>
+              <p className="mt-1.5">
+                {b.name.split(' ')[0]}, seu horário de <strong>{b.service.name}</strong> está marcado para <strong>{when}</strong>. 💖
+              </p>
+              <p className="mt-1.5 text-brand-white/70 text-[13px]">📍 {formatAddress(salonConfig.address)}</p>
+            </div>
+          ),
+        });
+        push({
+          from: 'link',
+          tone: 'whatsapp',
+          label: 'Enviar confirmação para a Bianca',
+          href: waLink(
+            `Olá, Bianca! Acabei de agendar pelo site:\n💇‍♀️ ${b.service.name}\n📅 ${when}\n👤 ${b.name}\nAté lá! 😊`
+          ),
+        });
+        push({
+          from: 'link',
+          tone: 'calendar',
+          label: 'Salvar na minha agenda',
+          href: googleCalendarLink(
+            `${b.service.name} — ${salonConfig.shortName}`,
+            start,
+            end,
+            `Agendado pelo site. Dúvidas: WhatsApp ${salonConfig.whatsappDisplay}`,
+            formatAddress(salonConfig.address)
+          ),
+        });
+        booking.current = null;
+        agenda.current = null; // recarrega ocupação na próxima
+        push({ from: 'actions', actions: [backToMenu] });
+      } catch (e) {
+        setTyping(false);
+        push({ from: 'bot', content: friendlyError(e) });
+        if (String(e).includes('HORARIO_OCUPADO')) {
+          bot('Vou te mostrar os horários atualizados 👇');
+          chooseDay();
+        } else {
+          push({
+            from: 'actions',
+            actions: [{ label: 'Tentar de novo', run: () => (user('Tentar de novo'), doBook()) }, backToMenu],
+          });
+          push({ from: 'link', tone: 'whatsapp', label: 'Agendar pelo WhatsApp', href: waLink(`Olá, Bianca! Quero agendar ${b.service.name}.`) });
+        }
+      }
+    });
+  };
+
+  /* ---------- informações ---------- */
   const address = () => {
     bot(
       <div>
@@ -185,28 +395,36 @@ export const ChatAssistant = () => {
     actions([{ label: 'Agendar horário', run: () => (user('Agendar horário'), chooseService()) }, backToMenu]);
   };
 
+  const DAY_NAMES = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
   const hours = () => {
-    const list = salonConfig.openingHours;
-    if (list.length) {
-      bot(
-        <div>
-          <p className="mb-1.5">🕒 Horário de atendimento:</p>
-          <ul className="space-y-1">
-            {list.map((h) => (
-              <li key={h.day} className="flex justify-between gap-3">
-                <span>{h.day}</span>
-                <span className="text-brand-white/80">{h.time}</span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-brand-white/70 text-[13px]">Atendimento com horário marcado.</p>
-        </div>
-      );
-    } else {
-      bot('O atendimento é com horário marcado 😊 Chama a Bianca no WhatsApp que ela te passa os horários livres.');
-    }
-    whatsapp('Olá, Bianca! Vi o site. Quais horários você tem disponíveis?', 'Ver horários no WhatsApp');
-    actions([{ label: 'Serviços e preços', run: () => (user('Serviços e preços'), prices()) }, backToMenu]);
+    after(async () => {
+      try {
+        const ag = await loadAgenda();
+        const active = ag.hours.filter((h) => h.active);
+        const allSame = active.length === 7 && active.every((h) => h.open_time === active[0].open_time && h.close_time === active[0].close_time);
+        bot(
+          <div>
+            <p className="mb-1.5">🕒 Horário de atendimento:</p>
+            {allSame ? (
+              <p>Todos os dias, das {active[0].open_time.slice(0, 5)} às {active[0].close_time.slice(0, 5)}</p>
+            ) : (
+              <ul className="space-y-1">
+                {ag.hours.map((h) => (
+                  <li key={h.weekday} className="flex justify-between gap-3">
+                    <span>{DAY_NAMES[h.weekday]}</span>
+                    <span className="text-brand-white/80">{h.active ? `${h.open_time.slice(0, 5)} às ${h.close_time.slice(0, 5)}` : 'Fechado'}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-2 text-brand-white/70 text-[13px]">Atendimento com horário marcado.</p>
+          </div>
+        );
+      } catch {
+        bot('O atendimento é com horário marcado 😊');
+      }
+      actions([{ label: '📅 Agendar horário', run: () => (user('Agendar horário'), chooseService()) }, backToMenu]);
+    });
   };
 
   const talk = () => {
@@ -215,6 +433,7 @@ export const ChatAssistant = () => {
     actions([backToMenu]);
   };
 
+  /* ---------- texto livre ---------- */
   const answer = (raw: string) => {
     const t = normalize(raw);
     const findService = (name: string) => salonConfig.services.find((s) => s.name === name);
@@ -224,18 +443,23 @@ export const ChatAssistant = () => {
       actions(
         salonConfig.services
           .filter((s) => /progressiva/i.test(s.name))
-          .map((s) => ({ label: s.name, run: () => (user(s.name), service(s)) }))
+          .map((s) => ({ label: s.name, run: () => (user(s.name), startBooking(s)) }))
       );
       return;
     }
     const hit = SERVICE_KEYWORDS.find((k) => k.match.test(t));
     const found = hit && findService(hit.name);
-    if (found) return service(found);
+    if (found) return startBooking(found);
 
+    if (/(agend|marcar|vaga|reserv|horario livre|tem horario)/.test(t)) return chooseService();
     if (/(preco|valor|quanto|custa|tabela|servico)/.test(t)) return prices();
-    if (/(agend|marcar|vaga|reserv)/.test(t)) return chooseService();
     if (/(onde|endereco|local|fica|mapa|chegar)/.test(t)) return address();
     if (/(hora|abre|fecha|funciona|aberto|domingo|sabado|segunda)/.test(t)) return hours();
+    if (/(cancel|desmarc|remarc)/.test(t)) {
+      bot('Para cancelar ou remarcar, é só avisar a Bianca no WhatsApp 😊');
+      whatsapp('Olá, Bianca! Preciso cancelar/remarcar meu horário.', 'Falar no WhatsApp');
+      return menu();
+    }
     if (/(pix|cartao|dinheiro|pagamento|pagar|parcel)/.test(t)) {
       bot('As formas de pagamento a Bianca te confirma no WhatsApp 😊');
       whatsapp('Olá, Bianca! Quais formas de pagamento você aceita?', 'Perguntar no WhatsApp');
@@ -266,21 +490,33 @@ export const ChatAssistant = () => {
   };
 
   /* ---------- abrir / enviar ---------- */
+  const greet = () => {
+    started.current = true;
+    bot(<span>Oi! 👋 Bem-vinda ao <strong>{salonConfig.name}</strong>.</span>, 350);
+  };
+
   const toggle = () => {
     setOpen((o) => !o);
     setUnread(false);
     if (!started.current) {
-      started.current = true;
-      bot(
-        <span>
-          Oi! 👋 Bem-vinda ao <strong>{salonConfig.name}</strong>.
-        </span>,
-        350
-      );
-      bot('Posso te mostrar os serviços e preços, o endereço ou já te levar para agendar com a Bianca. O que você prefere?');
+      greet();
+      bot('Você já pode marcar seu horário por aqui, na hora! Ou, se preferir, te mostro os serviços e preços. 😊');
       menu();
     }
     window.setTimeout(() => inputRef.current?.focus(), 80);
+  };
+
+  const openToBooking = (service?: Service) => {
+    setOpen(true);
+    setUnread(false);
+    setExpect(null);
+    booking.current = null;
+    if (!started.current) greet();
+    else clearActions();
+    if (service) {
+      push({ from: 'user', content: `Quero agendar ${service.name}` });
+      startBooking(service);
+    } else chooseService();
   };
 
   const submit = (e: FormEvent) => {
@@ -288,9 +524,39 @@ export const ChatAssistant = () => {
     const v = text.trim();
     if (!v) return;
     setText('');
+    const b = booking.current;
+
+    if (expect === 'name' && b) {
+      if (v.length < 2) {
+        push({ from: 'user', content: v });
+        bot('Pode me dizer seu nome? 😊');
+        return;
+      }
+      user(v);
+      b.name = v.replace(/\s+/g, ' ').slice(0, 80);
+      setExpect(null);
+      askPhone();
+      return;
+    }
+    if (expect === 'phone' && b) {
+      user(v);
+      let digits = v.replace(/\D/g, '');
+      if (digits.startsWith('55') && digits.length >= 12) digits = digits.slice(2);
+      if (digits.length < 10 || digits.length > 11) {
+        bot('Hmm, esse número não parece certo. Digita com DDD, por exemplo: 62 99999-9999');
+        return;
+      }
+      b.phone = digits;
+      setExpect(null);
+      confirmBooking();
+      return;
+    }
     user(v);
     answer(v);
   };
+
+  const placeholder =
+    expect === 'name' ? 'Digite seu nome...' : expect === 'phone' ? 'Ex.: 62 99999-9999' : 'Digite sua dúvida...';
 
   return (
     <>
@@ -299,7 +565,7 @@ export const ChatAssistant = () => {
         role="dialog"
         aria-label="Assistente da Bianca"
         aria-hidden={!open}
-        className={`fixed z-50 right-3 sm:right-7 bottom-[88px] sm:bottom-[104px] w-[calc(100vw-24px)] sm:w-[380px] h-[min(560px,calc(100dvh-120px))]
+        className={`fixed z-50 right-3 sm:right-7 bottom-[88px] sm:bottom-[104px] w-[calc(100vw-24px)] sm:w-[380px] h-[min(580px,calc(100dvh-120px))]
           flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-brand-blackSecondary shadow-glow-rose
           transition-all duration-300 ease-out origin-bottom-right
           ${open ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-4 pointer-events-none'}`}
@@ -308,7 +574,7 @@ export const ChatAssistant = () => {
           <img src={salonConfig.logoPath} alt="" className="h-10 w-10 rounded-full object-cover border-2 border-brand-white/40" />
           <div className="min-w-0">
             <p className="font-semibold text-brand-white leading-tight">Assistente da Bianca</p>
-            <p className="text-xs text-brand-white/80">Responde na hora</p>
+            <p className="text-xs text-brand-white/80">Agende seu horário na hora</p>
           </div>
           <button
             type="button"
@@ -337,18 +603,23 @@ export const ChatAssistant = () => {
                   ))}
                 </div>
               );
-            if (m.from === 'whatsapp')
+            if (m.from === 'link')
               return (
-                <a
-                  key={m.id}
-                  href={waLink(m.message)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 rounded-full bg-[#25D366] px-4 py-2.5 text-sm font-semibold text-white hover:brightness-110"
-                >
-                  <MessageCircle className="w-4 h-4" />
-                  {m.label}
-                </a>
+                <div key={m.id}>
+                  <a
+                    href={m.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold hover:brightness-110 ${
+                      m.tone === 'whatsapp'
+                        ? 'bg-[#25D366] text-white'
+                        : 'border border-brand-pink/50 text-brand-pinkLight bg-brand-blackSecondary'
+                    }`}
+                  >
+                    {m.tone === 'whatsapp' ? <MessageCircle className="w-4 h-4" /> : <CalendarCheck className="w-4 h-4" />}
+                    {m.label}
+                  </a>
+                </div>
               );
             const mine = m.from === 'user';
             return (
@@ -383,8 +654,10 @@ export const ChatAssistant = () => {
             ref={inputRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Digite sua dúvida..."
+            placeholder={placeholder}
             aria-label="Mensagem"
+            inputMode={expect === 'phone' ? 'tel' : 'text'}
+            autoComplete={expect === 'name' ? 'name' : expect === 'phone' ? 'tel' : 'off'}
             className="flex-1 rounded-full border border-white/10 bg-brand-black px-4 py-2.5 text-sm text-brand-white placeholder:text-brand-white/40 outline-none focus:border-brand-pink"
           />
           <button
@@ -407,7 +680,7 @@ export const ChatAssistant = () => {
           ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8 pointer-events-none'}`}
       >
         <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-white/15">
-          {open ? <X className="w-5 h-5" /> : <MessageCircle className="w-5 h-5" strokeWidth={2.1} />}
+          {open ? <X className="w-5 h-5" /> : <CalendarCheck className="w-5 h-5" strokeWidth={2.1} />}
           {unread && !open && (
             <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-white opacity-80" />
@@ -415,9 +688,7 @@ export const ChatAssistant = () => {
             </span>
           )}
         </span>
-        <span className="font-semibold text-sm hidden sm:block tracking-wide-sm">
-          {open ? 'Fechar' : 'Tire suas dúvidas'}
-        </span>
+        <span className="font-semibold text-sm hidden sm:block tracking-wide-sm">{open ? 'Fechar' : 'Agendar horário'}</span>
       </button>
     </>
   );
