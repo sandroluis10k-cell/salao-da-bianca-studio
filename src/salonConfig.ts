@@ -21,15 +21,6 @@ export interface Review {
   date?: string;
 }
 
-export interface InstagramPost {
-  /** Link do post, ex.: https://www.instagram.com/p/ABC123/ */
-  url: string;
-  /** Opcional: foto salva em public/Instagram/ (ex.: "/Instagram/post1.jpg"). Sem foto, usa o card oficial do Instagram. */
-  image?: string;
-  /** Opcional: texto que aparece ao passar o mouse */
-  caption?: string;
-}
-
 export interface OpeningHour {
   day: string;
   time: string;
@@ -98,23 +89,6 @@ export const salonConfig = {
   instagramUsername: "studio_bianca_aaalves",
   instagramUrl: "https://www.instagram.com/studio_bianca_aaalves",
 
-  // SINCRONIZAÇÃO AUTOMÁTICA: cole aqui o link "JSON feed" do Behold (behold.so).
-  // Com ele preenchido, o site mostra sempre as últimas publicações da Bianca.
-  instagramFeedUrl: "",
-  // Quantos posts mostrar
-  instagramPostsLimit: 6,
-
-  // Posts fixos (usados enquanto o feed automático não estiver configurado,
-  // ou se ele falhar). Clicou, abre no Instagram.
-  instagramPosts: [
-    { url: "https://www.instagram.com/reel/DeOuBDwJgJb/" },
-    { url: "https://www.instagram.com/reel/DeMrtGJprGP/" },
-    { url: "https://www.instagram.com/reel/DeJnG8LJ3DI/" },
-    { url: "https://www.instagram.com/reel/DeUCI5AJ4bR/" },
-    { url: "https://www.instagram.com/reel/DeMHhm2xrMn/" },
-    { url: "https://www.instagram.com/reel/Debw38zxTOE/" },
-  ] as InstagramPost[],
-
   googleReviewUrl: "",
 
   openingHours: [] as OpeningHour[],
@@ -176,3 +150,7 @@ export const getServiceBookingMessage = (service: Service): string => {
   const message = `Olá, Bianca! Tudo bem? Vi o trabalho do salão pelo site e gostaria de agendar o serviço ${service.name}, no valor anunciado de ${priceText}. Pode me informar quais horários estão disponíveis? 😊`;
   return encodeURIComponent(message);
 };
+
+/** Abre o chat direto no agendamento (opcionalmente já com o serviço escolhido) */
+export const openBooking = (service?: string) =>
+  window.dispatchEvent(new CustomEvent('abrir-agendamento', { detail: { service } }));
