@@ -27,7 +27,7 @@ export const fmtDuration = (min: number) => {
 type Editing = { service: ServiceRow | null } | null;
 
 export const Services = () => {
-  const { pin, services, reloadServices, logout } = useAdmin();
+  const { pin, services, reloadServices, logout, refreshKey } = useAdmin();
   const toast = useToast();
   const [list, setList] = useState<ServiceRow[] | null>(null);
   const [editing, setEditing] = useState<Editing>(null);
@@ -48,7 +48,7 @@ export const Services = () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pin]);
+  }, [pin, refreshKey]);
   useEffect(() => {
     if (services.length) setList(services);
   }, [services]);

@@ -33,7 +33,7 @@ const rangeOf = (p: Period): [string, string] => {
 };
 
 export const Finance = () => {
-  const { pin, price, lastUpdate } = useAdmin();
+  const { pin, price, lastUpdate, refreshKey } = useAdmin();
   const toast = useToast();
   const [period, setPeriod] = useState<Period>('mes');
   const [data, setData] = useState<Appointment[] | null>(null);
@@ -56,7 +56,7 @@ export const Finance = () => {
     return () => {
       alive = false;
     };
-  }, [pin, from, to, lastUpdate, toast]);
+  }, [pin, from, to, lastUpdate, refreshKey, toast]);
 
   const s = useMemo(() => {
     if (!data) return null;

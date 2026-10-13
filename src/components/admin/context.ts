@@ -14,6 +14,8 @@ export interface AdminData {
   loading: boolean;
   lastUpdate: Date | null;
   reload: () => Promise<void>;
+  /** muda a cada atualização manual: as páginas recarregam os próprios dados */
+  refreshKey: number;
   /** abre o modal "Novo atendimento" (opcionalmente já no dia escolhido) */
   openNew: (day?: string) => void;
   go: (p: Page, day?: string) => void;

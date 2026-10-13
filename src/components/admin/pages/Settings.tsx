@@ -6,7 +6,7 @@ import { Button, Card, Field, Input, Skeleton, Toggle, useToast } from '../ui';
 import { DAY_NAMES, savePin } from '../utils';
 
 export const Settings = () => {
-  const { pin } = useAdmin();
+  const { pin, refreshKey } = useAdmin();
   const toast = useToast();
   const [rows, setRows] = useState<HoursRow[] | null>(null);
   const [saving, setSaving] = useState(false);
@@ -21,7 +21,7 @@ export const Settings = () => {
         toast.error('Não consegui carregar os horários.');
         setRows([]);
       });
-  }, [toast]);
+  }, [toast, refreshKey]);
 
   const update = (i: number, patch: Partial<HoursRow>) => setRows((r) => r && r.map((x, j) => (j === i ? { ...x, ...patch } : x)));
 

@@ -17,7 +17,7 @@ import {
 import { salonConfig } from '../salonConfig';
 import { admin, addDays, fmtTime, getServices, todayKey, toDate, type Appointment, type Block, type ServiceRow } from '../agendaApi';
 import { AdminCtx, type AdminData, type Page } from './admin/context';
-import { AdminProviders, Button, Modal } from './admin/ui';
+import { AdminProviders, Button, Modal, useToast } from './admin/ui';
 import { Login } from './admin/Login';
 import { NewAppointmentModal } from './admin/NewAppointmentModal';
 import { Home } from './admin/pages/Home';
@@ -103,6 +103,10 @@ const Dashboard = ({ pin, onLogout }: { pin: string; onLogout: () => void }) => 
   const [newOpen, setNewOpen] = useState<{ day?: string } | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const loadingRef = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshingRef = useRef(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const toast = useToast();
 
   const reloadServices = useCallback(async () => {
     try {
@@ -119,20 +123,30 @@ const Dashboard = ({ pin, onLogout }: { pin: string; onLogout: () => void }) => 
     reloadServices();
   }, [reloadServices]);
 
+  /** Busca agendamentos e bloqueios. Lança erro se falhar. */
+  const fetchAll = useCallback(async (): Promise<'ok' | 'logout'> => {
+    const t = todayKey();
+    const from = toDate(addMonths(monthStart(t), -HISTORY_MONTHS), '00:00');
+    const to = toDate(addDays(t, FUTURE_DAYS), '00:00');
+    const ok = await admin.login(pin);
+    if (ok !== 'ok') {
+      onLogout();
+      return 'logout';
+    }
+    const [a, b] = await Promise.all([admin.list(pin, from, to), admin.listBlocks(pin, toDate(addDays(t, -1), '00:00'), to)]);
+    setAppts(a);
+    setBlocks(b);
+    setLastUpdate(new Date());
+    return 'ok';
+  }, [pin, onLogout]);
+
+  /** Atualização silenciosa (a cada 60 s e depois de cada ação) */
   const load = useCallback(async () => {
     if (loadingRef.current) return;
     loadingRef.current = true;
     setLoading(true);
     try {
-      const t = todayKey();
-      const from = toDate(addMonths(monthStart(t), -HISTORY_MONTHS), '00:00');
-      const to = toDate(addDays(t, FUTURE_DAYS), '00:00');
-      const ok = await admin.login(pin);
-      if (ok !== 'ok') return onLogout();
-      const [a, b] = await Promise.all([admin.list(pin, from, to), admin.listBlocks(pin, toDate(addDays(t, -1), '00:00'), to)]);
-      setAppts(a);
-      setBlocks(b);
-      setLastUpdate(new Date());
+      await fetchAll();
     } catch {
       /* mantém a última lista */
       setAppts((x) => x ?? []);
@@ -141,7 +155,27 @@ const Dashboard = ({ pin, onLogout }: { pin: string; onLogout: () => void }) => 
       loadingRef.current = false;
       setLoading(false);
     }
-  }, [pin, onLogout]);
+  }, [fetchAll]);
+
+  /** Botão de atualizar: recarrega tudo e avisa o resultado */
+  const refresh = useCallback(async () => {
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
+    setRefreshing(true);
+    const minSpin = new Promise((r) => window.setTimeout(r, 700));
+    try {
+      const [r] = await Promise.all([fetchAll(), admin.listServices(pin).then(setServices), minSpin]);
+      if (r === 'logout') return;
+      setRefreshKey((k) => k + 1);
+      toast.success(`Agenda atualizada às ${fmtTime(new Date())}`);
+    } catch {
+      await minSpin;
+      toast.error('Não foi possível atualizar. Verifique a internet.');
+    } finally {
+      refreshingRef.current = false;
+      setRefreshing(false);
+    }
+  }, [fetchAll, pin, toast]);
 
   useEffect(() => {
     load();
@@ -175,12 +209,13 @@ const Dashboard = ({ pin, onLogout }: { pin: string; onLogout: () => void }) => 
       loading,
       lastUpdate,
       reload: load,
+      refreshKey,
       openNew: (day?: string) => setNewOpen({ day }),
       go,
       price,
       logout: onLogout,
     }),
-    [pin, appts, blocks, services, reloadServices, loading, lastUpdate, load, go, price, onLogout]
+    [pin, appts, blocks, services, reloadServices, loading, lastUpdate, load, refreshKey, go, price, onLogout]
   );
 
   const meta = PAGES.find((p) => p.id === page)!;
@@ -237,8 +272,17 @@ const Dashboard = ({ pin, onLogout }: { pin: string; onLogout: () => void }) => 
                 <h1 className="truncate font-display text-xl leading-tight text-white lg:text-[26px]">{meta.title}</h1>
                 <p className="hidden truncate text-sm text-white/45 sm:block">{meta.subtitle}</p>
               </div>
-              <Button variant="ghost" size="icon" onClick={() => load()} aria-label="Atualizar" title={lastUpdate ? `Atualizado às ${fmtTime(lastUpdate)}` : 'Atualizar'}>
-                <RefreshCw className={`h-[18px] w-[18px] ${loading ? 'animate-spin' : ''}`} />
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={refresh}
+                disabled={refreshing}
+                aria-label={refreshing ? 'Atualizando…' : 'Atualizar'}
+                aria-busy={refreshing}
+                title={lastUpdate ? `Atualizado às ${fmtTime(lastUpdate)}` : 'Atualizar'}
+                className="!h-11 !w-11 active:bg-white/[0.12] disabled:!opacity-100 lg:!h-10 lg:!w-10"
+              >
+                <RefreshCw className={`h-[18px] w-[18px] ${refreshing || loading ? 'animate-spin' : ''} ${refreshing ? 'text-brand-pink' : ''}`} />
               </Button>
               <Button variant="primary" onClick={() => setNewOpen({ day: page === 'agenda' ? agendaDay : undefined })} className="px-3 sm:px-4">
                 <Plus className="h-4 w-4" />
